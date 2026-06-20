@@ -129,8 +129,9 @@
   /* pick-side tint: bet text + parlay legs echo the matchup fav(green)/dog(purple)
      colors, a shade darker so they read on the gold banner */
   .pickbar .pick-fav{color:#16693c} .pickbar .pick-dog{color:#5c2a8a}
-  /* PICK/PARLAY tag colored by bet category: moneyline / prop / parlay */
-  .pickbar .tag.cat-ml{color:#15487c} .pickbar .tag.cat-prop{color:#97243a}
+  /* PICK/PARLAY tag colored only for the special categories: moneyline (blue) /
+     parlay (teal). Plain props keep the default neutral tag. */
+  .pickbar .tag.cat-ml{color:#15487c}
   .pickbar.parlay .tag.cat-parlay{color:#0e6072}
   .pickbar .m{color:#3d3208;font-weight:600;flex:none}
   .pickbar span.b{flex:1 1 auto;min-width:0}
