@@ -118,17 +118,19 @@
     color:#241c02;border-bottom:1px solid #7a5f16;border-radius:9px 9px 0 0;
     text-shadow:0 1px 0 rgba(255,255,255,.25);
     background:
-      linear-gradient(180deg,rgba(255,255,255,.45) 0%,rgba(255,255,255,0) 18%,rgba(0,0,0,.12) 100%),
-      linear-gradient(95deg,#a9851f 0%,#e9d27a 14%,#caa233 30%,#f6e9a8 47%,#c79a2b 60%,#e8cf73 78%,#9c7d1e 100%);
-    box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -1px 0 rgba(0,0,0,.25)}
+      linear-gradient(180deg,rgba(255,255,255,.32) 0%,rgba(255,255,255,0) 20%,rgba(0,0,0,.20) 100%),
+      linear-gradient(95deg,#97751b 0%,#b8923f 14%,#a07c28 30%,#c2a050 47%,#946f22 60%,#b48d3c 78%,#7e6418 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.4),inset 0 -1px 0 rgba(0,0,0,.3)}
   .pickbar .tag{font-weight:900;letter-spacing:.5px;color:#1a1304;flex:none}
   .pickbar .b{color:#000;font-weight:800;overflow:hidden;text-overflow:ellipsis}
   .pickbar .o{font-variant-numeric:tabular-nums;font-weight:900;flex:none;
     padding:0 5px;border-radius:4px;background:rgba(0,0,0,.18)}
   .pickbar .o.neg{color:#06351c} .pickbar .o.pos{color:#5a2a00}
-  /* pick-side tint: bet text echoes the matchup's fav(green)/dog(orange) color,
-     darkened to read on the bright gold banner */
-  .pickbar .b.pick-fav{color:#08502c} .pickbar .b.pick-dog{color:#7c3300}
+  /* pick-side tint: bet text uses the EXACT matchup fav(green)/dog(orange) colors,
+     made to shine on the gold-bronze banner via a dark halo */
+  .pickbar .b.pick-fav{color:var(--fav)} .pickbar .b.pick-dog{color:var(--dog)}
+  .pickbar .b.pick-fav,.pickbar .b.pick-dog{font-weight:900;
+    text-shadow:0 0 1px rgba(0,0,0,.5),0 1px 1px rgba(0,0,0,.6)}
   .pickbar .m{color:#3d3208;font-weight:600;flex:none}
   .pickbar span.b{flex:1 1 auto;min-width:0}
   .pickbar .ev{color:#06351c;font-weight:800;flex:none}
@@ -140,8 +142,8 @@
     display:block;flex-wrap:initial;white-space:normal;overflow:visible;
     padding:5px 10px 6px;
     background:
-      linear-gradient(180deg,rgba(255,255,255,.4) 0%,rgba(255,255,255,0) 14%,rgba(0,0,0,.12) 100%),
-      linear-gradient(95deg,#8f7424 0%,#d9c489 14%,#b6973f 32%,#ecdca6 48%,#b39548 62%,#d4bf80 80%,#8a6f22 100%)}
+      linear-gradient(180deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,0) 16%,rgba(0,0,0,.20) 100%),
+      linear-gradient(95deg,#7e6520 0%,#b09245 14%,#997e30 32%,#bd9c52 48%,#957a32 62%,#ab8d44 80%,#6f5a1a 100%)}
   .pickbar.parlay .pl-head{display:flex;align-items:center;flex-wrap:wrap;gap:2px 8px;
     white-space:nowrap}
   .pickbar.parlay .pl-head .b{flex:0 1 auto}
