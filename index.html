@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Fight Matrix — Upcoming Card</title>
+<title>Lockpick MMA — Upcoming Card</title>
 <style>
   :root{
     --fg:#e8e8ea; --dim:#9aa0ab; --bg:#14161a; --row:#1b1e24; --row2:#202430;
@@ -126,6 +126,9 @@
   .pickbar .o{font-variant-numeric:tabular-nums;font-weight:900;flex:none;
     padding:0 5px;border-radius:4px;background:rgba(0,0,0,.18)}
   .pickbar .o.neg{color:#06351c} .pickbar .o.pos{color:#5a2a00}
+  /* pick-side tint: bet text echoes the matchup's fav(green)/dog(orange) color,
+     darkened to read on the bright gold banner */
+  .pickbar .b.pick-fav{color:#08502c} .pickbar .b.pick-dog{color:#7c3300}
   .pickbar .m{color:#3d3208;font-weight:600;flex:none}
   .pickbar span.b{flex:1 1 auto;min-width:0}
   .pickbar .ev{color:#06351c;font-weight:800;flex:none}
@@ -265,7 +268,7 @@
     <header class="ev">
       <h1 id="ev-name">—</h1>
       <span class="date" id="ev-date"></span>
-      <span class="legend">rank: <b>#Model</b> (in-house XGBoost — beats WHR &amp; all FightMatrix systems head-to-head) &nbsp;|&nbsp; click a bout to expand both histories</span>
+      <span class="legend">rank: <b>#Model</b> (in-house XGBoost — beats WHR &amp; every other public rating system head-to-head) &nbsp;|&nbsp; click a bout to expand both histories</span>
     </header>
     <div id="card"></div>
   </section>
@@ -351,7 +354,7 @@ function oddsWrap(f){
     ow.appendChild(s);
   }
   const o=el("span","odds "+(primary<0?"neg":"pos"),oddsStr(primary));
-  o.title=(dk!=null?"DraftKings":(fm!=null?"FightMatrix":"best"))+" "+oddsStr(primary);
+  o.title=(dk!=null?"DraftKings":(fm!=null?"reference":"best"))+" "+oddsStr(primary);
   ow.appendChild(o);
   return ow;
 }
@@ -412,7 +415,7 @@ function parlayLegs(label){
   return out;
 }
 
-function pickBar(p){
+function pickBar(p, bout){
   const d=el("div","pickbar "+(p.conviction||"med")+(p.parlay?" parlay":""));
   d.title=p.thesis||"";
   const stat='<span>P '+Math.round(p.prob*100)+'%</span>'
@@ -436,8 +439,16 @@ function pickBar(p){
   }
   const betF=p.bet, betA=abbrBet(p.bet);
   const mF=p.market, mA=abbrPhrase(p.market);
+  // When the pick is on a specific fighter, tint the bet text to that fighter's
+  // matchup color (favorite=green / underdog=orange). Neutral props (side null)
+  // keep the default banner color.
+  let sideCls="";
+  if(p.side && bout){
+    if(p.side===bout.fav.name) sideCls=" pick-fav";
+    else if(p.side===bout.dog.name) sideCls=" pick-dog";
+  }
   d.innerHTML='<span class="tag">PICK ▸</span>'
-    +'<span class="b" data-full="'+betF+'" data-abbr="'+betA+'">'+betF+'</span>'+odds
+    +'<span class="b'+sideCls+'" data-full="'+betF+'" data-abbr="'+betA+'">'+betF+'</span>'+odds
     +'<span class="m" data-full="'+mF+'" data-abbr="'+mA+'">'+mF+'</span>'+stat;
   return d;
 }
@@ -652,7 +663,7 @@ function modelBar(bout){
 
 function boutView(bout){
   const b=el("div","bout");
-  if(bout.pick) b.appendChild(pickBar(bout.pick));   // gold banner across the top
+  if(bout.pick) b.appendChild(pickBar(bout.pick, bout));   // gold banner across the top
   const sum=el("div","summary");
   const side=bout.pick&&bout.pick.side;
   sum.appendChild(halfView(bout.fav,"fav", side&&side===bout.fav.name));
