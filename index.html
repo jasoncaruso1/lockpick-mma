@@ -346,7 +346,7 @@ function rankStrip(ranks){
 }
 
 // DraftKings primary (current colors/position) + best faded beside it
-function oddsWrap(f){
+function oddsWrap(f, side){
   const ow=el("div","odds-wrap");
   const dk=f.dk, best=f.best, fm=f.fm_odds;
   const primary = dk!=null ? dk : (fm!=null ? fm : best);
@@ -357,7 +357,10 @@ function oddsWrap(f){
     s.title="best available: "+oddsStr(best)+(f.best_book?" at "+f.best_book:"");
     ow.appendChild(s);
   }
-  const o=el("span","odds "+(primary<0?"neg":"pos"),oddsStr(primary));
+  // colour the moneyline by SLOT (favorite=green / underdog=purple), not by the
+  // sign of the number -- so a pick'em underdog at -110 still reads as the dog.
+  const oddsCls = side ? (side==="dog"?"pos":"neg") : (primary<0?"neg":"pos");
+  const o=el("span","odds "+oddsCls,oddsStr(primary));
   o.title=(dk!=null?"DraftKings":(fm!=null?"reference":"best"))+" "+oddsStr(primary);
   ow.appendChild(o);
   return ow;
@@ -510,7 +513,7 @@ function halfView(f, side, picked){
   l1.appendChild(el("span","abbr",f.division_abbr||"—"));
   const nm=el("span","nm",f.name);
   l1.appendChild(nm);
-  l1.appendChild(oddsWrap(f));
+  l1.appendChild(oddsWrap(f, side));
   h.appendChild(l1);
   // lines 2-4
   for(const [tag,scope] of [["",("all")],["[UFC]","ufc"],["[L3Y]","l3y"]]){
