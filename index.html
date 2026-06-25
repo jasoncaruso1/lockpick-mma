@@ -215,7 +215,7 @@
   .thesisbox table.stt col.stt-lbl{width:84px}
   .thesisbox table.stt td.rtag{text-align:center;padding:0;margin:0;white-space:nowrap;vertical-align:middle}
   .thesisbox table.stt th{font-size:8px;font-weight:600;color:#6a7180;text-transform:uppercase;
-    letter-spacing:.2px;text-align:center;padding:0 2px 1px}
+    letter-spacing:.2px;text-align:center;padding:0 2px 1px;white-space:nowrap;overflow:hidden}
   .thesisbox table.stt td{text-align:center;padding:1px 2px;vertical-align:middle}
   /* the inline 0-100 gradient chip: hue ramps red(0)->green(120) via --rh */
   .rtm{display:inline-block;min-width:19px;padding:0 4px;border-radius:3px;font-size:10px;
@@ -615,21 +615,26 @@ function halfView(f, side, picked){
   l1.appendChild(nm);
   l1.appendChild(oddsWrap(f, side));
   h.appendChild(l1);
-  // The fighter body, always shown (no controls), in this order:
-  //   1. full (all-time) method-split record
-  //   2. measurables  3. [UFC] + [L3Y] splits  4. the four overall ratings
+  // The fighter body, always shown (no controls). EVERY slot ALWAYS renders a
+  // row -- an empty placeholder when the fighter lacks that data -- so the two
+  // fighters' bodies stay line-for-line aligned (e.g. [L3Y] sits across from
+  // [L3Y] even if one fighter has no UFC fights). Order:
+  //   1. measurables  2. full record  3. [UFC]  4. [L3Y]  5. overalls
   const det=el("div","fdetail");
-  let body="";
-  const allLine=recLine("", f.records&&f.records.all);
-  if(allLine) body+=allLine.outerHTML;
-  body+=measLine(f);                                   // measurables (may be "")
-  for(const [tag,scope] of [["[UFC]","ufc"],["[L3Y]","l3y"]]){
+  const blank='<div class="dl">&nbsp;</div>';
+  const recOr=(tag,scope)=>{
     const rs=f.records&&f.records[scope];
     if(rs&&rs.tot&&(rs.tot[0]+rs.tot[1]+rs.tot[2])>0){
-      const tmp=recLine(tag,rs); if(tmp) body+=tmp.outerHTML;
+      const tmp=recLine(tag,rs); if(tmp) return tmp.outerHTML;
     }
-  }
-  body+=overallsLine(f);                               // Power/Stamina/Striking/Grappling
+    return blank;
+  };
+  let body="";
+  body+=(measLine(f)||blank);                          // 1. measurables
+  body+=recOr("", "all");                              // 2. full record
+  body+=recOr("[UFC]", "ufc");                         // 3. UFC split
+  body+=recOr("[L3Y]", "l3y");                         // 4. last-3-years split
+  body+=(overallsLine(f)||blank);                      // 5. overall ratings
   det.innerHTML=body;
   h.appendChild(det);
   return h;
@@ -825,13 +830,37 @@ function statTr(tag, groups, key){
 }
 // a stat block rendered as a fixed-layout table so the tag column (sized to the
 // longest tag, SUBMISSIONS) and the three measure columns line up across blocks.
+// header abbreviation tiers: full word -> 4-letter -> 3-letter. fitStatTables
+// (after layout) picks the longest tier that doesn't overlap, per table.
+const HDR_ABBR={
+  "Volume":["Volume","VOLU","VOL"], "Accuracy":["Accuracy","ACCU","ACC"],
+  "Defense":["Defense","DEFN","DEF"], "Precision":["Precision","PREC","PRC"],
+  "Pace":["Pace","PACE","PAC"]
+};
 function statTable(headerLabels, groups, rows){
   let h='<table class="stt"><colgroup><col class="stt-lbl">'
     +'<col><col><col></colgroup><tr class="stt-h"><td></td>';
-  for(const l of headerLabels) h+='<th>'+l+'</th>';
+  for(const l of headerLabels){
+    const a=HDR_ABBR[l]||[l,l,l];
+    h+='<th data-full="'+a[0]+'" data-ab4="'+a[1]+'" data-ab3="'+a[2]+'">'+a[0]+'</th>';
+  }
   h+='</tr>';
   for(const [tag,key] of rows) h+=statTr(tag, groups, key);
   return h+'</table>';
+}
+// After layout, step each stat-table's headers full->4->3 letters until none
+// overflow its column (no header text wraps or clips into a neighbour).
+function fitStatTables(root){
+  (root||document).querySelectorAll("table.stt").forEach(tbl=>{
+    const ths=[...tbl.querySelectorAll("tr.stt-h th")];
+    if(!ths.length) return;
+    for(const tier of ["data-full","data-ab4","data-ab3"]){
+      ths.forEach(th=>{ th.textContent=th.getAttribute(tier); });
+      // fits if every header's content width <= its cell width (no overflow)
+      const ok=ths.every(th=> th.scrollWidth<=th.clientWidth+1);
+      if(ok || tier==="data-ab3") break;
+    }
+  });
 }
 // STRIKING block (Details box): header + table; Volume/Accuracy/Defense columns.
 function strikingBlock(f){
@@ -923,7 +952,10 @@ function boutView(bout){
   }
   if(detailsChip && detailsBoxEl){
     detailsChip.addEventListener("click",e=>{ e.stopPropagation();
-      detailsChip.classList.toggle("on", detailsBoxEl.classList.toggle("open")); });
+      const on=detailsBoxEl.classList.toggle("open");
+      detailsChip.classList.toggle("on", on);
+      if(on) fitStatTables(detailsBoxEl);   // measure header widths once visible
+    });
   }
   if(histChip){
     histChip.addEventListener("click",e=>{ e.stopPropagation();
@@ -1047,6 +1079,7 @@ function refitAll(){
   _fitT=setTimeout(()=>{
     fitPickBars(document);
     document.querySelectorAll(".bout.open .history").forEach(h=>fitHistory(h));
+    document.querySelectorAll(".thesisbox.open").forEach(b=>fitStatTables(b));
   },60);
 }
 // The artifact frame often settles its width AFTER first paint, and a plain
