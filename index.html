@@ -9,6 +9,11 @@
     --fg:#e8e8ea; --dim:#9aa0ab; --bg:#14161a; --row:#1b1e24; --row2:#202430;
     --line:#2c313c; --fav:#7fd1a3; --dog:#b488e0; --win:#3a8f5e; --loss:#b4503f;
     --accent:#6aa6ff; --chip:#2a2f3a;
+    /* pickbar palette — single source of truth for the synced colours.
+       --green / --purple shade darker than the lighter fighter-name --fav/--dog;
+       reused so a pick's odds + bet (and +EV) all reference ONE definition.
+       --neutral (even -110 + winner-agnostic props) is BLACK. */
+    --pick-green:#1f6b3e; --pick-purple:#5d3a86; --pick-neutral:#000; --pick-red:#c0504a;
     --gold:#d4af37; --gold-dim:#9c802a; --gold-soft:rgba(212,175,55,.14);
     --f: 11px; --fs: 10px;
   }
@@ -125,22 +130,27 @@
   /* bet text + odds sit on a DARK shadow pill so the (light) fav/dog name colours
      read on the gold banner; coloured by the bet's odds VALUE (fav<=-111 / dog>=-109
      / -110 white), white for winner-agnostic props. */
-  .pickbar .b{color:#fff;font-weight:800;overflow:hidden;text-overflow:ellipsis;
-    padding:0 5px;border-radius:4px;background:rgba(0,0,0,.55);text-shadow:none}
-  .pickbar .o{font-variant-numeric:tabular-nums;font-weight:900;flex:none;
-    padding:0 5px;border-radius:4px;background:rgba(0,0,0,.55);text-shadow:none}
-  /* odds-VALUE colours (shared by .o and .b) = identical to the fighter-name fav/dog */
-  .pickbar .o.neg,.pickbar .b.neg{color:var(--fav)}
-  .pickbar .o.pos,.pickbar .b.pos{color:var(--dog)}
-  .pickbar .o.even,.pickbar .b.even,.pickbar .b.agnostic{color:#fff}
+  .pickbar .b{color:var(--pick-neutral);font-weight:800;overflow:hidden;text-overflow:ellipsis;
+    text-shadow:none}
+  .pickbar .o{font-variant-numeric:tabular-nums;font-weight:900;flex:none;text-shadow:none;
+    margin-left:auto}  /* bet text hugs left; odds + market + stats right-aligned */
+  /* odds-VALUE colours (shared by .o and .b) -- all from the single palette */
+  .pickbar .o.neg,.pickbar .b.neg{color:var(--pick-green)}
+  .pickbar .o.pos,.pickbar .b.pos{color:var(--pick-purple)}
+  /* even (-110) + winner-agnostic = BLACK (neutral) */
+  .pickbar .o.even,.pickbar .b.even,.pickbar .b.agnostic{color:var(--pick-neutral)}
   /* legacy pick-side tint (parlay legs) */
-  .pickbar .pick-fav{color:var(--fav)} .pickbar .pick-dog{color:var(--dog)}
+  .pickbar .pick-fav{color:var(--pick-green)} .pickbar .pick-dog{color:var(--pick-purple)}
   /* all PICK tags are BLACK (no per-category colour) */
   .pickbar .tag.cat-ml{color:#000}
+  /* blank banner (a fight with no pick) -- same gold strip, dimmed, no content */
+  .pickbar.blank{opacity:.45;cursor:default}
   .pickbar.parlay .tag.cat-parlay{color:#0e6072}
   .pickbar .m{color:#3d3208;font-weight:600;flex:none}
   .pickbar span.b{flex:0 1 auto;min-width:0}  /* hug the text; pill does not span the bar */
-  .pickbar .ev{color:#06351c;font-weight:800;flex:none}
+  /* EV by sign: green positive / black zero / red negative (palette-synced) */
+  .pickbar .ev{font-weight:800;flex:none}
+  .pickbar .ev.pos{color:var(--pick-green)} .pickbar .ev.zero{color:#000} .pickbar .ev.neg{color:var(--pick-red)}
   .pickbar span:nth-child(n+5){margin-left:0}
   .pickbar > span:not(.b):not(.tag){flex:none}
   .pickbar .slate{margin-left:auto;color:#1a1304;font-weight:800;flex:none}
@@ -461,6 +471,18 @@ function pickCat(p){
 
 // odds VALUE colour: favourite (<=-111) green, underdog (>=-109) purple, -110 white.
 function oddsValCls(o){ return o<=-111?"neg":(o>=-109?"pos":"even"); }
+// pickbar colour for a pick's odds + bet text:
+//  - winner-agnostic props -> neutral (black);
+//  - MONEYLINE picks -> the picked fighter's SLOT colour (model favourite green /
+//    underdog purple), matching the fighter's odds colour in the body, since the
+//    model favourite is what we're backing -- NOT the raw odds value;
+//  - fallback -> odds value.
+function pickColorCls(p, bout){
+  if(p.winner_agnostic) return "even";
+  if(bout && bout.fav && p.side===bout.fav.name) return "neg";
+  if(bout && bout.dog && p.side===bout.dog.name) return "pos";
+  return oddsValCls(p.dk_odds);
+}
 // the slate-value cell text for the current MODE + bankroll. EDGE labels it "bet"
 // (literal Kelly stake), SLATE labels it "slate" (fully-invested share).
 function slateLabel(p){
@@ -469,14 +491,18 @@ function slateLabel(p){
   if(BANKROLL>0) return '$'+(BANKROLL*pct/100).toFixed(2);
   return (edge?'bet ':'slate ')+pct+'%';
 }
+// empty gold banner for a fight with no pick (keeps the card layout uniform).
+function blankPickBar(){ return el("div","pickbar blank","&nbsp;"); }
 function pickBar(p, bout){
   const d=el("div","pickbar "+(p.conviction||"med")+(p.parlay?" parlay":""));
   d.title=p.thesis||"";
   const eslate=(p.edge_slate_pct||0), sslate=(p.slate_pct!=null?p.slate_pct:p.slate_alloc_pct);
+  const evCls = p.ev_pct>0 ? "pos" : (p.ev_pct<0 ? "neg" : "zero");
   const stat='<span>P '+Math.round(p.prob*100)+'%</span>'
-    +'<span class="ev">EV '+(p.ev_pct>=0?"+":"")+p.ev_pct+'%</span>'
+    +'<span class="ev '+evCls+'">EV '+(p.ev_pct>=0?"+":"")+p.ev_pct+'%</span>'
     +'<span class="slate" data-edge="'+eslate+'" data-slate="'+sslate+'" title="EDGE: literal Kelly-0.13 stake | SLATE: fully-invested MV share">'+slateLabel(p)+'</span>';
-  const odds='<span class="o '+oddsValCls(p.dk_odds)+'">'+oddsStr(p.dk_odds)+'</span>';
+  const colCls=pickColorCls(p, bout);
+  const odds='<span class="o '+colCls+'">'+oddsStr(p.dk_odds)+'</span>';
   if(p.parlay){
     // Multi-line: a header row, then one row per leg (one per fight in the parlay).
     const legs=parlayLegs(p.label);
@@ -494,9 +520,9 @@ function pickBar(p, bout){
   }
   const betF=p.bet, betA=abbrBet(p.bet);
   const mF=p.market, mA=abbrPhrase(p.market);
-  // Bet text colour: winner-agnostic props are WHITE; otherwise coloured by the
-  // bet's odds VALUE (fav green / dog purple / -110 white), matching the odds pill.
-  const betCls = p.winner_agnostic ? "agnostic" : oddsValCls(p.dk_odds);
+  // Bet text colour: same as the odds (slot colour for ML picks; neutral black
+  // for winner-agnostic props).
+  const betCls = colCls;
   d.innerHTML='<span class="tag '+pickCat(p)+'">PICK ▸</span>'
     +'<span class="b '+betCls+'" data-full="'+betF+'" data-abbr="'+betA+'">'+betF+'</span>'+odds
     +'<span class="m" data-full="'+mF+'" data-abbr="'+mA+'">'+mF+'</span>'+stat;
@@ -714,8 +740,10 @@ function modelBar(bout){
 function boutView(bout){
   const b=el("div","bout");
   // gold banner across the top; in EDGE mode only GATED bouts carry a pick.
-  if(bout.pick && !(BET_MODE==="edge" && !bout.pick.gated))
-    b.appendChild(pickBar(bout.pick, bout));
+  // Fights with no pick (e.g. non-gated in EDGE) still show a BLANK banner so
+  // the card layout stays uniform.
+  const showPick = bout.pick && !(BET_MODE==="edge" && !bout.pick.gated);
+  b.appendChild(showPick ? pickBar(bout.pick, bout) : blankPickBar());
   const sum=el("div","summary");
   const side=bout.pick&&bout.pick.side;
   sum.appendChild(halfView(bout.fav,"fav", side&&side===bout.fav.name));
