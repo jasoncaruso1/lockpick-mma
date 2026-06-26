@@ -263,6 +263,12 @@
   .navright{margin-left:auto;display:flex;gap:8px;align-items:center}
   .bankroll{display:inline-flex;align-items:center;gap:4px;color:var(--dim);font-size:12px;font-weight:700;
     background:var(--row);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+  /* slate-wide Risk / Win totals, shown left of the bankroll box when funded */
+  .bettotals{display:inline-flex;align-items:center;gap:10px;font-size:12px;font-weight:800;
+    font-variant-numeric:tabular-nums;letter-spacing:.3px}
+  .bettotals[hidden]{display:none}
+  .bettotals .bt-risk{color:var(--dim)}
+  .bettotals .bt-win{color:var(--gold)}
   .bankroll input{width:78px;background:transparent;border:none;color:var(--fg);font:inherit;
     font-variant-numeric:tabular-nums;outline:none}
   .modetoggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
@@ -411,6 +417,7 @@
     <button class="navbtn" data-view="fighters">Fighter Rankings</button>
     <button class="navbtn" data-view="promos">Promotion Rankings</button>
     <div class="navright">
+      <div id="bettotals" class="bettotals" title="Risk = total staked across the slate | Win = total profit if every pick wins" hidden></div>
       <label class="bankroll" title="enter bankroll to convert slate % to $ stakes">$
         <input id="bankroll" type="number" min="0" step="0.01" inputmode="decimal" placeholder="bankroll"></label>
       <div class="modetoggle" title="EDGE: only bets within the model gate, at Kelly sizes | SLATE: a pick on every fight, fully invested">
@@ -470,6 +477,9 @@ const DAY_MS  = 86400000;
 
 function el(tag, cls, html){const e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e;}
 function oddsStr(o){return o==null?"":(o>0?"+"+o:""+o);}
+// American odds -> decimal multiplier (profit per $1 staked = dec-1).
+function amToDec(o){o=parseFloat(o); if(!isFinite(o)||o===0) return null; return o>0 ? 1+o/100 : 1+100/(-o);}
+function money(x){return '$'+(x||0).toFixed(2);}
 function rec3(r){return r? r[0]+"-"+r[1]+"-"+r[2] : null;}
 
 // one method-split records line, omitting empty buckets
@@ -607,7 +617,12 @@ function pickColorCls(p, bout){
 function slateLabel(p){
   const edge=(BET_MODE==="edge");
   const pct = edge ? (p.edge_slate_pct||0) : (p.slate_pct!=null?p.slate_pct:p.slate_alloc_pct);
-  if(BANKROLL>0) return '$'+(BANKROLL*pct/100).toFixed(2);
+  if(BANKROLL>0){
+    const stake=BANKROLL*pct/100, dec=amToDec(p.dk_odds);
+    // per-fight: "$stake to win $profit" (profit = stake*(dec-1)); fall back to bare
+    // stake when the pick has no priced ML odds (e.g. winner-agnostic props).
+    return dec ? money(stake)+' to win '+money(stake*(dec-1)) : money(stake);
+  }
   return (edge?'bet ':'slate ')+pct+'%';
 }
 // empty gold banner for a fight with no pick (keeps the card layout uniform).
@@ -619,7 +634,7 @@ function pickBar(p, bout){
   const evCls = p.ev_pct>0 ? "pos" : (p.ev_pct<0 ? "neg" : "zero");
   const stat='<span>P '+Math.round(p.prob*100)+'%</span>'
     +'<span class="ev '+evCls+'">EV '+(p.ev_pct>=0?"+":"")+p.ev_pct+'%</span>'
-    +'<span class="slate" data-edge="'+eslate+'" data-slate="'+sslate+'" title="EDGE: literal Kelly-0.13 stake | SLATE: fully-invested MV share">'+slateLabel(p)+'</span>';
+    +'<span class="slate" data-edge="'+eslate+'" data-slate="'+sslate+'" data-odds="'+(p.dk_odds!=null?p.dk_odds:'')+'" title="EDGE: literal Kelly-0.13 stake | SLATE: fully-invested MV share">'+slateLabel(p)+'</span>';
   const colCls=pickColorCls(p, bout);
   const odds='<span class="o '+colCls+'">'+oddsStr(p.dk_odds)+'</span>';
   if(p.parlay){
@@ -1116,10 +1131,29 @@ render();
 // ---- EDGE/SLATE toggle + bankroll -> $ stakes ----
 function refreshSlateLabels(){
   const edge=BET_MODE==="edge";
+  let risk=0, win=0;   // slate-wide totals when a bankroll is entered
   document.querySelectorAll(".pickbar .slate[data-slate]").forEach(s=>{
     const pct=parseFloat(edge?s.dataset.edge:s.dataset.slate)||0;
-    s.textContent = BANKROLL>0 ? '$'+(BANKROLL*pct/100).toFixed(2) : (edge?'bet ':'slate ')+pct+'%';
+    if(BANKROLL>0){
+      const stake=BANKROLL*pct/100, dec=amToDec(s.dataset.odds);
+      s.textContent = dec ? money(stake)+' to win '+money(stake*(dec-1)) : money(stake);
+      risk+=stake; if(dec) win+=stake*(dec-1);
+    } else {
+      s.textContent = (edge?'bet ':'slate ')+pct+'%';
+    }
   });
+  updateBetTotals(risk, win);
+}
+// Show slate-wide Risk / Win totals to the left of the bankroll box (only once a
+// bankroll is entered). Risk = Σ stakes; Win = Σ profit-if-each-pick-wins.
+function updateBetTotals(risk, win){
+  const box=document.getElementById("bettotals");
+  if(!box) return;
+  if(BANKROLL>0){
+    box.innerHTML='<span class="bt-risk">Risk '+money(risk)+'</span>'
+                 +'<span class="bt-win">Win '+money(win)+'</span>';
+    box.hidden=false;
+  } else { box.hidden=true; box.innerHTML=''; }
 }
 function setBetMode(m){
   BET_MODE=m;
