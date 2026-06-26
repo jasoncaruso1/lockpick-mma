@@ -39,7 +39,7 @@
       linear-gradient(var(--row),var(--row)),
       linear-gradient(140deg,#7a5f16 0%,#e9d27a 22%,#b8932b 42%,#f6e9a8 55%,#9c7d1e 78%,#caa233 100%);
     background-origin:border-box;background-clip:padding-box,border-box;
-    box-shadow:0 2px 12px rgba(0,0,0,.4)}
+    box-shadow:0 2px 12px rgba(0,0,0,.4);cursor:pointer}
   .bout > .summary{display:grid;grid-template-columns:1fr 30px 1fr;align-items:stretch;cursor:pointer}
   .bout > .summary:hover{background:rgba(255,255,255,.02)}
   .half{padding:4px 8px;min-width:0}
@@ -994,19 +994,32 @@ function boutView(bout){
     if(histChip) histChip.classList.toggle("on", on);
     if(on && hv) fitHistory(hv);   // measure only once visible
   }
+  function setDetails(on){
+    if(!detailsBoxEl) return;
+    detailsBoxEl.classList.toggle("open", on);
+    if(detailsChip) detailsChip.classList.toggle("on", on);
+    if(on) fitStatTables(detailsBoxEl);   // measure header widths once visible
+  }
+  // DETAILS / HISTORY chips: a direct click toggles ONLY that panel (independent).
   if(detailsChip && detailsBoxEl){
     detailsChip.addEventListener("click",e=>{ e.stopPropagation();
-      const on=detailsBoxEl.classList.toggle("open");
-      detailsChip.classList.toggle("on", on);
-      if(on) fitStatTables(detailsBoxEl);   // measure header widths once visible
-    });
+      setDetails(!detailsBoxEl.classList.contains("open")); });
   }
   if(histChip){
     histChip.addEventListener("click",e=>{ e.stopPropagation();
       setHistory(!b.classList.contains("open")); });
   }
-  // clicking the fighter summary row still toggles History (syncs the chip)
-  sum.addEventListener("click",e=> setHistory(!b.classList.contains("open")));
+  // Clicking anywhere ELSE on the bout cycles the pair through 00 -> 01 -> 11 -> 00
+  // (both collapsed -> history only -> both expanded -> both collapsed). Chips
+  // stopPropagation above, so a direct chip click never triggers this cycle.
+  b.addEventListener("click",()=>{
+    const hasDetails=!!detailsBoxEl;
+    const dOn=hasDetails && detailsBoxEl.classList.contains("open");
+    const hOn=b.classList.contains("open");
+    if(!hOn){ setDetails(false); setHistory(true); }          // 00/10 -> 01
+    else if(hasDetails && !dOn){ setDetails(true); setHistory(true); }  // 01 -> 11
+    else { setHistory(false); setDetails(false); }            // 11 (or no-details 01) -> 00
+  });
   return b;
 }
 
