@@ -814,6 +814,7 @@ function measLine(f){
   if(m.height_in!=null) facts.push(fmtHt(m.height_in));
   if(m.weight_lbs!=null) facts.push(m.weight_lbs+'lb');
   if(m.reach_in!=null) facts.push('Reach: '+m.reach_in+'"');
+  if(m.stance) facts.push('Stance: '+m.stance);
   if(m.age!=null) facts.push('Age: '+m.age);
   return facts.length ? '<div class="dl meas">'+facts.join(' <span class="sep">|</span> ')+'</div>' : "";
 }
