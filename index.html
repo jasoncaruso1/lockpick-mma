@@ -1219,12 +1219,14 @@ function fighterTable(rows){
   // SKILL = the tuned whr6 skill rating (fight-count/SE-shrunk; the most skill-aligned
   // single number, the #1 win-model feature). Shown next to RR-WIN%/Elo.
   let h='<table class="rk-table"><tr><th>#</th><th>Fighter</th>'
-    +'<th class="rk-skill-h" title="whr6 skill rating: opponent-adjusted whole-history rating, shrunk for sample size">SKILL</th>'
+    +'<th class="rk-skill-h" title="MBTD (mixed Bradley-Terry Davidson): opponent-adjusted whole-history rating, shrunk for sample size">MBTD</th>'
     +'<th>RR-WIN%</th><th>Elo</th>';
   for(const [lbl] of cols) h+='<th class="rk-rt-h">'+lbl+'</th>';
   h+='</tr>';
-  // Overall: native rank order. Sub-views: re-sort by the summary column (nulls last).
-  let ordered=rows;
+  // Overall: order by MBTD (whr_skill) DESC, nulls last. Sub-views: re-sort by the
+  // summary component column (nulls last). The displayed # is the position in the
+  // active ordering (so Overall numbers the MBTD order 1,2,3...).
+  let ordered;
   if(_FVIEW!=="overall"){
     ordered=rows.map((r,i)=>[r,i]).sort((a,b)=>{
       const va=fsortKey(a[0]), vb=fsortKey(b[0]);
@@ -1232,10 +1234,22 @@ function fighterTable(rows){
       if(va==null) return 1; if(vb==null) return -1;
       return vb-va;
     }).map(x=>x[0]);
+  } else {
+    // Order by MBTD via whr_skill_RANK (UFC-only, ascending), NOT the raw whr_skill
+    // value -- the value is populated for non-UFC (PFL/Bellator/regional) fighters too
+    // and would float them to the top; whr_skill_rank is null for them so they sort last.
+    ordered=rows.map((r,i)=>[r,i]).sort((a,b)=>{
+      const va=a[0].whr_skill_rank, vb=b[0].whr_skill_rank;
+      if(va==null&&vb==null) return a[1]-b[1];   // both unranked -> native order
+      if(va==null) return 1; if(vb==null) return -1;
+      return va-vb;                               // rank ascending == MBTD descending
+    }).map(x=>x[0]);
   }
+  let pos=0;
   for(const r of ordered){
+    pos++;
     const skill=(r.whr_skill!=null)?Math.round(r.whr_skill):null;
-    h+='<tr><td class="rk-pos">'+r.rank+'</td>'
+    h+='<tr><td class="rk-pos">'+pos+'</td>'
       +'<td class="rk-name">'+r.name+(r.is_ufc?'<span class="rk-ufc">UFC</span>':'')+'</td>'
       +'<td class="rk-skill">'+(skill!=null?skill:'<span class="rk-na">—</span>')+'</td>'
       +'<td class="rk-num">'+pct(r.win_pct)+'</td>'
