@@ -1,0 +1,1558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>UFC 319 — Fight-Night Snapshot</title>
+<style>
+  :root{
+    --fg:#e8e8ea; --dim:#9aa0ab; --bg:#14161a; --row:#1b1e24; --row2:#202430;
+    --line:#2c313c; --fav:#7fd1a3; --dog:#b488e0; --win:#3a8f5e; --loss:#b4503f;
+    --accent:#6aa6ff; --chip:#2a2f3a;
+    /* pickbar palette — single source of truth for the synced colours.
+       --green / --purple shade darker than the lighter fighter-name --fav/--dog;
+       reused so a pick's odds + bet (and +EV) all reference ONE definition.
+       --neutral (even -110 + winner-agnostic props) is BLACK. */
+    --pick-green:#1f6b3e; --pick-purple:#5d3a86; --pick-neutral:#000; --pick-red:#c0504a;
+    --gold:#d4af37; --gold-dim:#9c802a; --gold-soft:rgba(212,175,55,.14);
+    --f: 11px; --fs: 10px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:var(--f);line-height:1.25}
+  a{color:inherit;text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1200px;margin:0 auto;padding:8px 10px 60px}
+  header.ev{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;padding:6px 4px 10px;border-bottom:1px solid var(--line)}
+  header.ev h1{font-size:15px;margin:0;font-weight:650}
+  header.ev .date{color:var(--dim)}
+  header.ev .watch{color:var(--gold);font-weight:600}
+  header.ev .legend{margin-left:auto;color:var(--dim);font-size:var(--fs)}
+  header.ev .legend b{color:var(--fg)}
+  header.ev .cardsum{flex:1 1 100%;margin-top:2px;color:#c4c9d2;font-size:11px;line-height:1.5}
+  header.ev .cardsum b{color:var(--fg)}
+
+  /* one bout per card: metallic gold border, rounded, spaced apart */
+  #card{display:flex;flex-direction:column;gap:14px;padding-top:12px}
+  .bout{border:1px solid transparent;border-radius:10px;background:var(--row);
+    overflow:hidden;
+    background-image:
+      linear-gradient(var(--row),var(--row)),
+      linear-gradient(140deg,#7a5f16 0%,#e9d27a 22%,#b8932b 42%,#f6e9a8 55%,#9c7d1e 78%,#caa233 100%);
+    background-origin:border-box;background-clip:padding-box,border-box;
+    box-shadow:0 2px 12px rgba(0,0,0,.4);cursor:pointer}
+  .bout > .summary{display:grid;grid-template-columns:1fr 30px 1fr;align-items:stretch;cursor:pointer}
+  .bout > .summary:hover{background:rgba(255,255,255,.02)}
+  .half{padding:4px 8px;min-width:0}
+  .half.dog{border-left:1px solid var(--line)}
+  .mid{display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--dim);font-size:var(--fs)}
+  .mid .wt{background:var(--chip);border-radius:8px;padding:1px 6px;color:var(--fg)}
+  .mid .tw{margin-top:2px;font-size:9px}
+
+  /* line 1: ranks | abbr | name | odds */
+  .l1{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden}
+  .ranks{display:inline-flex;align-items:center;font-variant-numeric:tabular-nums;
+    border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .ranks .rk{padding:0 4px;border-right:1px solid var(--line);color:var(--dim);font-size:var(--fs);min-width:18px;text-align:center}
+  .ranks .rk:last-child{border-right:0}
+  .ranks .rk.fm{color:var(--fg);font-weight:700}
+  .ranks .rk.whr{color:var(--fg);font-weight:700;min-width:28px;font-variant-numeric:tabular-nums}
+  .ranks .rk.na{color:#555}
+  .abbr{color:var(--dim);font-size:var(--fs);min-width:26px}
+  .nm{font-weight:650;overflow:hidden;text-overflow:ellipsis}
+  .half.fav .nm{color:var(--fav)} .half.dog .nm{color:var(--dog)}
+  .odds-wrap{margin-left:auto;display:flex;align-items:baseline;gap:5px;white-space:nowrap}
+  .odds{font-variant-numeric:tabular-nums;font-weight:700}      /* DraftKings, primary */
+  .odds.neg{color:var(--fav)} .odds.pos{color:var(--dog)}
+  .best{font-size:9px;color:#717784;font-variant-numeric:tabular-nums}  /* best, faded */
+  .best .bk{color:#565c68;font-size:8px}
+  .odds .src{color:#565c68;font-size:8px;font-weight:600}   /* primary-line book tag (e.g. BOL) */
+
+  /* expanded per-book odds bar (full-width band, two halves) */
+  .obwrap{display:flex;align-items:stretch;background:#0c0e12;
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .bout.open .history .ob{flex:1 1 0;min-width:0;min-height:34px;padding:7px 9px;
+    font-size:9.5px;line-height:1.7;color:var(--dim);white-space:normal;overflow-wrap:anywhere}
+  .ob.dog{border-left:1px solid var(--line);text-align:right}
+  .ob .dk{color:var(--fg);font-weight:700}
+  .ob .bestmark{color:var(--accent)}
+
+  /* lines 2-4: method-split records */
+  .rec{color:var(--dim);font-size:var(--fs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .rec .tot{color:var(--fg);font-weight:650}
+  .rec .tag{display:inline-block;color:var(--accent);font-weight:700;margin-right:2px}
+  .rec b{color:#cfd4dd;font-weight:600}
+
+  /* expanded dual history — shared time-aligned timeline, both fighters side by side */
+  .history{display:none;border-top:1px solid var(--gold-dim);background:#0f1115}
+  .bout.open .history{display:block}
+  .tlhead{display:flex;align-items:stretch;background:#0c0e12;border-bottom:1px solid var(--line)}
+  .th{flex:1 1 0;min-width:0;padding:5px 9px;font-size:10px;font-weight:800;
+    letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .th.fav{color:var(--fav)}
+  .th.dog{color:var(--dog);text-align:right}
+  .th.axis{flex:0 0 34px;padding:0;
+    background:linear-gradient(180deg,rgba(212,175,55,.12),rgba(212,175,55,.04))}
+  .tl{display:flex;align-items:stretch}              /* three real columns */
+  .col{position:relative;flex:1 1 0;min-width:0;padding:4px 6px;box-sizing:border-box}
+  .col.fav{border-right:1px solid var(--line)}
+  .col.dog{border-left:1px solid var(--line)}
+  .axis{position:relative;flex:0 0 34px;background:rgba(212,175,55,.05)}
+  .tlwrap{position:relative;width:100%}
+  /* each fight = a fixed-height card slot, absolutely placed by its real date */
+  .fx{position:absolute;left:0;right:0;height:42px;overflow:hidden;
+    padding:3px 6px;border:1px solid var(--line);border-radius:5px;
+    background:#16191f;box-sizing:border-box}
+  .fx .meta{display:flex;gap:5px;align-items:center;white-space:nowrap;overflow:hidden}
+  .fx .res{font-weight:800;min-width:15px;height:14px;line-height:14px;text-align:center;
+    border-radius:3px;color:#0c0d10;font-size:9px;flex:none}
+  .fx .res.W{background:var(--win);color:#eafff1} .fx .res.L{background:var(--loss);color:#fff}
+  .fx .res.D,.fx .res.NC{background:#5a5f6b;color:#fff}
+  .fx .d{color:var(--gold);font-size:9px;font-variant-numeric:tabular-nums;flex:none}
+  .fx .opp{font-weight:600;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .fx .orank{color:var(--accent);font-size:9px;flex:none}
+  .fx .mth{color:var(--dim);font-size:9px;display:block;margin-top:2px;margin-left:20px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gapnote{position:absolute;left:50%;transform:translateX(-50%);color:var(--gold-dim);
+    font-size:9px;white-space:nowrap}
+  .empty{color:#555;padding:8px}
+
+  /* concealed archive overlay (a history cell can carry an unlisted `href`;
+     clicking it opens the linked page in-place -- deliberately NO hover cue) */
+  .secret-ov{position:fixed;inset:0;z-index:99;background:rgba(6,7,10,.84);
+    display:flex;align-items:center;justify-content:center;padding:14px}
+  .secret-panel{position:relative;width:min(1200px,97vw);height:min(94vh,1050px);
+    border-radius:10px;overflow:hidden;border:1px solid transparent;
+    background-image:
+      linear-gradient(#0f1115,#0f1115),
+      linear-gradient(140deg,#7a5f16 0%,#e9d27a 22%,#b8932b 42%,#f6e9a8 55%,#9c7d1e 78%,#caa233 100%);
+    background-origin:border-box;background-clip:padding-box,border-box;
+    box-shadow:0 10px 44px rgba(0,0,0,.7)}
+  .secret-panel iframe{width:100%;height:100%;border:0;display:block;background:#14161a}
+  .secret-x{position:absolute;top:8px;right:10px;z-index:2;cursor:pointer;
+    border:1px solid var(--line);border-radius:6px;background:rgba(12,14,18,.85);
+    color:var(--dim);font:700 12px/1 inherit;padding:5px 9px}
+  .secret-x:hover{color:var(--gold)}
+
+  /* recommended-bet badge */
+  .half.fav.picked{box-shadow:inset 3px 0 0 var(--gold)}
+  .half.dog.picked{box-shadow:inset -3px 0 0 var(--gold)}
+
+  /* METALLIC GOLD PICK BANNER — single compact line across the top */
+  .pickbar{display:flex;align-items:center;flex-wrap:nowrap;gap:0 8px;
+    padding:4px 10px;font-size:10.5px;line-height:1.25;white-space:nowrap;overflow:hidden;
+    color:#241c02;border-bottom:1px solid #7a5f16;border-radius:9px 9px 0 0;
+    text-shadow:0 1px 0 rgba(255,255,255,.25);
+    background:
+      linear-gradient(180deg,rgba(255,255,255,.45) 0%,rgba(255,255,255,0) 18%,rgba(0,0,0,.12) 100%),
+      linear-gradient(95deg,#a9851f 0%,#e9d27a 14%,#caa233 30%,#f6e9a8 47%,#c79a2b 60%,#e8cf73 78%,#9c7d1e 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -1px 0 rgba(0,0,0,.25)}
+  .pickbar .tag{font-weight:900;letter-spacing:.5px;color:#000;flex:none}
+  /* bet text + odds sit on a DARK shadow pill so the (light) fav/dog name colours
+     read on the gold banner; coloured by the bet's odds VALUE (fav<=-111 / dog>=-109
+     / -110 white), white for winner-agnostic props. */
+  .pickbar .b{color:var(--pick-neutral);font-weight:800;overflow:hidden;text-overflow:ellipsis;
+    text-shadow:none}
+  .pickbar .o{font-variant-numeric:tabular-nums;font-weight:900;flex:none;text-shadow:none;
+    margin-left:auto}  /* bet text hugs left; odds + market + stats right-aligned */
+  /* odds-VALUE colours (shared by .o and .b) -- all from the single palette */
+  .pickbar .o.neg,.pickbar .b.neg{color:var(--pick-green)}
+  .pickbar .o.pos,.pickbar .b.pos{color:var(--pick-purple)}
+  /* even (-110) + winner-agnostic = BLACK (neutral) */
+  .pickbar .o.even,.pickbar .b.even,.pickbar .b.agnostic{color:var(--pick-neutral)}
+  /* legacy pick-side tint (parlay legs) */
+  .pickbar .pick-fav{color:var(--pick-green)} .pickbar .pick-dog{color:var(--pick-purple)}
+  /* all PICK tags are BLACK (no per-category colour) */
+  .pickbar .tag.cat-ml{color:#000}
+  /* blank banner (a fight with no pick) -- same gold strip, dimmed, no content */
+  .pickbar.blank{opacity:.45;cursor:default}
+  .pickbar.parlay .tag.cat-parlay{color:#0e6072}
+  .pickbar .m{color:#3d3208;font-weight:600;flex:none}
+  .pickbar span.b{flex:0 1 auto;min-width:0}  /* hug the text; pill does not span the bar */
+  /* EV by sign: green positive / black zero / red negative (palette-synced) */
+  .pickbar .ev{font-weight:800;flex:none}
+  .pickbar .ev.pos{color:var(--pick-green)} .pickbar .ev.zero{color:#000} .pickbar .ev.neg{color:var(--pick-red)}
+  .pickbar span:nth-child(n+5){margin-left:0}
+  .pickbar > span:not(.b):not(.tag){flex:none}
+  .pickbar .slate{margin-left:auto;color:#1a1304;font-weight:800;flex:none}
+  /* PARLAY banner: multi-line — header row, then one row per leg */
+  .pickbar.parlay{
+    display:block;flex-wrap:initial;white-space:normal;overflow:visible;
+    padding:5px 10px 6px;
+    background:
+      linear-gradient(180deg,rgba(255,255,255,.4) 0%,rgba(255,255,255,0) 14%,rgba(0,0,0,.12) 100%),
+      linear-gradient(95deg,#8f7424 0%,#d9c489 14%,#b6973f 32%,#ecdca6 48%,#b39548 62%,#d4bf80 80%,#8a6f22 100%)}
+  .pickbar.parlay .pl-head{display:flex;align-items:center;flex-wrap:wrap;gap:2px 8px;
+    white-space:nowrap}
+  .pickbar.parlay .pl-head .b{flex:0 1 auto}
+  .pickbar.parlay .tag{color:#2e2305}
+  .pickbar.parlay .pl-legs{display:block;margin-top:3px;
+    border-top:1px solid rgba(0,0,0,.22);padding-top:3px}
+  .pickbar.parlay .pleg{display:flex;align-items:baseline;gap:6px;
+    font-size:10px;font-weight:700;color:#241c02;line-height:1.5;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .pickbar.parlay .pleg .legn{flex:none;display:inline-flex;align-items:center;justify-content:center;
+    width:14px;height:14px;border-radius:50%;background:rgba(0,0,0,.25);color:#f3e6b0;
+    font-size:8.5px;font-weight:900}
+  .pickbar.parlay .pleg .legt{overflow:hidden;text-overflow:ellipsis}
+  /* DK prop menu row (expanded) */
+  .bout.open .history .props{display:flex;flex-wrap:wrap;gap:3px 14px;
+    padding:3px 8px;font-size:9px;color:var(--dim);border-bottom:1px solid var(--line);background:#0f1115}
+  .props b{color:#cfd4dd;font-variant-numeric:tabular-nums} .props .lbl{color:#6a7180;text-transform:uppercase;letter-spacing:.4px}
+  .modelbar{display:flex;align-items:center;gap:6px;padding:3px 10px;font-size:10px;color:var(--dim);white-space:normal;line-height:1.4;border-top:1px solid var(--line);background:rgba(106,166,255,.06)}
+  .modelbar b{color:var(--fg)} .modelbar .mdot{color:#444}
+  .modelbar .mmeta{flex:0 0 auto;display:flex;align-items:center;gap:5px}
+  .modelbar .ftime{color:var(--fg)} .modelbar .fwatch{color:var(--gold)}
+  .modelbar .mprob{min-width:0;flex:1 1 auto}
+  /* footer multiselect chips (Details | History) */
+  .modelbar .dchips{flex:0 0 auto;margin-left:auto;display:flex;gap:4px}
+  .modelbar .dchip{cursor:pointer;padding:1px 7px;border-radius:9px;font-size:9px;font-weight:700;
+    letter-spacing:.4px;text-transform:uppercase;user-select:none;white-space:nowrap;
+    color:#8a909c;border:1px solid var(--line)}
+  .modelbar .dchip:hover{color:var(--fg)}
+  .modelbar .dchip.on{color:#0b0d10;background:var(--accent,#6aa6ff);border-color:transparent}
+  /* the expandable Details box (thesis + granular striking/grappling) */
+  .thesisbox{display:none;padding:8px 10px 10px;font-size:11px;line-height:1.5;color:#c4c9d2;
+    border-top:1px solid var(--line);background:rgba(106,166,255,.04)}
+  .thesisbox.open{display:block}
+  .thesisbox .d-timing{margin:0 0 6px;color:#cfd4dd}
+  .thesisbox .d-timing b{color:var(--gold);font-weight:700}
+  .thesisbox .d-thesis{margin:0 0 8px}
+  /* two columns (fav | dog) aligned to the fight body's halves */
+  .thesisbox .dx-cols{display:grid;grid-template-columns:1fr 30px 1fr;align-items:start}
+  /* ---- detail stat lines (shared: fighter body + Details box) ---- */
+  .fdetail .dhdr{color:var(--fg);font-weight:700;font-size:10px;margin-top:4px}
+  /* Details-box section header centered over its table (table max-width 300px) */
+  .thesisbox .dhdr{color:var(--fg);font-weight:700;font-size:10px;margin-top:4px;
+    max-width:300px;text-align:center}
+  /* Offense/Defense subheading within a Striking/Grappling section */
+  .thesisbox .dsub{color:var(--dim);font-weight:600;font-size:8.5px;letter-spacing:.4px;
+    text-transform:uppercase;max-width:300px;text-align:center;margin-top:3px}
+  .fdetail .dl,.thesisbox .dl{color:var(--dim);font-size:var(--fs);line-height:1.5;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .fdetail .dl.meas,.thesisbox .dl.meas{color:#cfd4dd}
+  .fdetail .dl .sep,.thesisbox .dl .sep{color:#444}
+  .fdetail .rtag,.thesisbox .rtag{display:inline-block;color:var(--accent);font-weight:700;font-size:8.5px;
+    letter-spacing:.3px;margin-right:1px}
+  /* Details-box stat tables: fixed layout so the tag column (right-aligned, sized
+     to the longest tag) and the three measure columns line up across blocks. */
+  .thesisbox table.stt{width:100%;max-width:300px;border-collapse:collapse;table-layout:fixed;
+    font-variant-numeric:tabular-nums;margin-bottom:2px}
+  .thesisbox table.stt col.stt-lbl{width:84px}
+  .thesisbox table.stt td.rtag{text-align:center;padding:0;margin:0;white-space:nowrap;vertical-align:middle}
+  .thesisbox table.stt th{font-size:8px;font-weight:600;color:#6a7180;text-transform:uppercase;
+    letter-spacing:.2px;text-align:center;padding:0 2px 1px;white-space:nowrap;overflow:hidden}
+  .thesisbox table.stt td{text-align:center;padding:1px 2px;vertical-align:middle}
+  /* the inline 0-100 gradient chip: hue ramps red(0)->green(120) via --rh */
+  .rtm{display:inline-block;min-width:19px;padding:0 4px;border-radius:3px;font-size:10px;
+    font-weight:700;text-align:center;color:#0b0d10;background:hsl(var(--rh,60),62%,55%)}
+
+  /* ===================== TOGGLE NAV + RANKING PAGES ===================== */
+  /* promotion card tabs (UFC / PFL / ...): only shown for a multi-card page */
+  .cardtabs{display:flex;gap:6px;padding:10px 0 2px;flex-wrap:wrap;align-items:center}
+  .cardtab{appearance:none;border:1px solid var(--line);background:transparent;color:var(--dim);
+    font:600 13px/1 inherit;letter-spacing:.04em;text-transform:uppercase;
+    padding:7px 14px;border-radius:999px;cursor:pointer;transition:.15s}
+  .cardtab:hover{color:var(--fg);border-color:var(--dim)}
+  .cardtab.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+  .nav{display:flex;gap:6px;padding:8px 0 10px;flex-wrap:wrap;align-items:center}
+  /* golden lock logo (silver pick) — pops open right at page load, settles fast. */
+  .navbrand{display:inline-flex;align-items:center;margin-right:4px;cursor:default;user-select:none}
+  .navbrand .locksvg{display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.45))}
+  .navbrand .shackle{transform-box:fill-box;transform-origin:12px 19px;
+    animation:lockpop .85s cubic-bezier(.5,-0.5,.25,1.4) 0s 1 both}
+  .navbrand .pick{transform-box:fill-box;transform-origin:20px 26px;
+    animation:picknudge .85s ease-out 0s 1 both}
+  .navbrand .spark{opacity:0;animation:sparkflash .85s ease-out 0s 1 both}
+  @keyframes lockpop{
+    0%{transform:rotate(0) translate(0,0)}
+    45%{transform:rotate(34deg) translate(2px,-2px)}
+    100%{transform:rotate(26deg) translate(1px,-1px)}
+  }
+  @keyframes picknudge{
+    0%{transform:translate(0,0) rotate(0)}
+    30%{transform:translate(-1px,1px) rotate(-7deg)}
+    60%,100%{transform:translate(0,0) rotate(0)}
+  }
+  @keyframes sparkflash{
+    0%{opacity:0;transform:scale(.4)}
+    35%{opacity:1;transform:scale(1.15)}
+    100%{opacity:0;transform:scale(1.4)}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .navbrand .shackle{animation:none;transform:rotate(26deg) translate(1px,-1px)}
+    .navbrand .pick,.navbrand .spark{animation:none}
+    .navbrand .spark{opacity:0}
+  }
+  .navbtn{background:var(--row);color:var(--dim);border:1px solid var(--line);border-radius:8px;
+    padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+  .navbtn:hover{color:var(--fg)}
+  .navbtn.active{color:#241c02;border-color:#7a5f16;text-shadow:0 1px 0 rgba(255,255,255,.25);
+    background:linear-gradient(95deg,#a9851f,#e9d27a 30%,#f6e9a8 50%,#caa233 75%,#9c7d1e)}
+  /* right-side controls: bankroll box + EDGE/SLATE toggle */
+  .navright{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .bankroll{display:inline-flex;align-items:center;gap:4px;color:var(--dim);font-size:12px;font-weight:700;
+    background:var(--row);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+  /* slate-wide Risk / Win totals, shown left of the bankroll box when funded */
+  .bettotals{display:inline-flex;align-items:center;gap:10px;font-size:12px;font-weight:800;
+    font-variant-numeric:tabular-nums;letter-spacing:.3px}
+  .bettotals[hidden]{display:none}
+  .bettotals .bt-risk{color:var(--dim)}
+  .bettotals .bt-win{color:var(--gold)}
+  .bankroll input{width:78px;background:transparent;border:none;color:var(--fg);font:inherit;
+    font-variant-numeric:tabular-nums;outline:none}
+  .modetoggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .modebtn{background:var(--row);color:var(--dim);border:none;padding:6px 12px;font-size:12px;
+    font-weight:800;letter-spacing:.5px;cursor:pointer;font-family:inherit}
+  .modebtn:hover{color:var(--fg)}
+  .modebtn.active{color:#241c02;text-shadow:0 1px 0 rgba(255,255,255,.25);
+    background:linear-gradient(95deg,#a9851f,#e9d27a 30%,#f6e9a8 50%,#caa233 75%,#9c7d1e)}
+  .view[hidden]{display:none}
+  .vtitle{font-size:16px;margin:6px 2px 2px;font-weight:700}
+  .subtle{color:var(--dim);font-size:10.5px;margin:0 2px 10px;max-width:760px;line-height:1.4}
+  .sectitle{font-size:13px;font-weight:800;letter-spacing:.3px;margin:14px 2px 6px;color:var(--gold)}
+  .divsel{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 8px}
+  .divbtn{background:var(--row);color:var(--dim);border:1px solid var(--line);border-radius:6px;
+    padding:3px 10px;font-size:11px;cursor:pointer;font-family:inherit}
+  .divbtn.active{color:var(--fg);border-color:var(--gold-dim);background:var(--gold-soft)}
+  .rk-table{width:100%;border-collapse:collapse;font-size:12px}
+  .rk-table th{text-align:left;color:#6a7180;font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;
+    padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .rk-table td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:baseline}
+  .rk-table tr:hover td{background:rgba(255,255,255,.03)}
+  .rk-pos{color:var(--gold);font-weight:800;width:30px;font-variant-numeric:tabular-nums}
+  .rk-name{font-weight:650;color:var(--fav)}
+  .rk-org{font-weight:650;color:var(--fg)}
+  .rk-num{font-variant-numeric:tabular-nums;text-align:right;color:#cfd4dd;white-space:nowrap}
+  .rk-dim{font-variant-numeric:tabular-nums;text-align:right;color:var(--dim);white-space:nowrap}
+  .rk-ufc{font-size:8.5px;color:var(--accent);margin-left:5px;font-weight:700}
+  /* PFL (incl. its Bellator/WSOF lineage) org badge -- distinct from the UFC accent */
+  .rk-pfl{font-size:8.5px;color:#e08a3c;margin-left:5px;font-weight:700}
+  /* per-row PROMOTION BANNER chip (analyst 2026-06-30): filled with the org's brand colour,
+     text auto-contrasted (dark on light brands, light on dark). Colour + text set inline. */
+  .rk-orgchip{font-size:8px;font-weight:800;letter-spacing:.3px;margin-left:6px;padding:1px 5px;
+    border-radius:3px;vertical-align:middle;border:1px solid rgba(255,255,255,.14)}
+  /* component-rating cells in the Fighter Rankings view */
+  .rk-table th.rk-rt-h{text-align:center;color:#6a7180}
+  .rk-table td.rk-rt{text-align:center;padding:5px 4px}
+  .rk-na{color:#444}
+  /* SKILL = the whr6 skill rating (the primary skill number) -- gold, emphasized */
+  .rk-table th.rk-skill-h{text-align:right;color:var(--gold);font-weight:800;white-space:nowrap}
+  .rk-skill{font-variant-numeric:tabular-nums;text-align:right;color:var(--gold);font-weight:800;white-space:nowrap}
+  /* RR-WIN% = the gold headline rating column (the tau-corrected round-robin win%) */
+  .rk-table th.rk-gold-h{color:var(--gold);font-weight:800;text-align:right}
+  .rk-table td.rk-gold{color:var(--gold);font-weight:800}
+  /* clickable sort headers (Elo / RR-WIN%): show a hover + an active (sorted-on) state */
+  .rk-table th.rk-sorth{cursor:pointer;text-align:right}
+  .rk-table th.rk-sorth:hover{color:var(--fg)}
+  .rk-table th.rk-sorton{color:var(--gold)}
+  /* Overall/Striking/Grappling view selector + sub-controls (reuse .divbtn chips) */
+  .fviewsel{display:flex;flex-wrap:wrap;gap:5px;margin:2px 0 4px}
+  .fsubsel{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 8px;align-items:center}
+  .fsubsel:empty{margin:0}
+  .fsortlbl{color:var(--dim);font-size:11px;margin-right:2px}
+
+  /* ===================== RESPONSIVE / MOBILE ===================== */
+  /* Allow long names/records to wrap instead of being clipped everywhere. */
+  @media (max-width: 640px){
+    :root{ --f:13px; --fs:11px; }
+    .wrap{ padding:8px 8px 48px; }
+
+    header.ev{ flex-wrap:wrap; gap:4px 10px; padding:6px 2px 8px; }
+    header.ev h1{ font-size:16px; flex:1 1 100%; }
+    header.ev .legend{ margin-left:0; flex:1 1 100%; line-height:1.35; }
+
+    /* Stack the two fighters vertically; weight chip becomes a divider band. */
+    .bout > .summary{ grid-template-columns:1fr; }
+    .half{ padding:8px 10px; }
+    .half.dog{ border-left:0; border-top:1px solid var(--line); }
+    .half.fav.picked{ box-shadow:inset 0 3px 0 var(--gold); }
+    .half.dog.picked{ box-shadow:inset 0 -3px 0 var(--gold); }
+
+    .mid{
+      grid-row:auto; flex-direction:row; gap:6px;
+      padding:3px 10px; background:#0f1115;
+      border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    }
+    .mid .tw{ margin-top:0; }
+
+    /* Line 1 stays ONE line: odds share the row with rank/weight/name
+       (name ellipsizes to make room; odds keep right alignment). */
+    .l1{ white-space:nowrap; overflow:hidden; }
+    .nm{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+    .odds-wrap{ flex:none; margin-left:auto; }
+
+    /* Records: let them wrap to multiple lines rather than truncate. */
+    .rec{ white-space:normal; line-height:1.4; }
+
+    /* Pick banner stays a single line on mobile too (JS abbreviates to fit). */
+    .pickbar{ padding:4px 9px; font-size:10px; }
+
+    /* Per-book odds: keep the two halves side by side, just smaller. */
+    .obwrap{ flex-direction:row; }
+    .history .ob{ font-size:8.5px; line-height:1.5; padding:6px 6px; min-height:30px; }
+    .ob.dog{ text-align:right; border-left:1px solid var(--line); border-top:0; }
+    .props{ white-space:normal; font-size:8.5px; }
+
+    /* History ALWAYS side-by-side (never stacks) — the shared time ruler is
+       preserved; we only shrink type/padding so both columns fit any phone,
+       portrait or landscape. */
+    .tl{ flex-direction:row; }
+    .col{ padding:4px 4px; }
+    .col.fav{ border-right:1px solid var(--line); }
+    .col.dog{ border-left:1px solid var(--line); border-top:0; }
+    .col::before{ content:none; }            /* no stacked-list headers */
+    .axis{ display:block; flex:0 0 18px; }   /* keep narrow shared axis */
+    .th{ font-size:9px; padding:5px 6px; }
+    .th.axis{ flex:0 0 18px; }
+    .gapnote{ font-size:7.5px; }
+    .fx{ left:2px; right:2px; padding:2px 4px; font-size:9px; }
+    .fx .meta{ gap:3px; }
+    .fx .res{ min-width:13px; height:13px; line-height:13px; font-size:8px; }
+    .fx .d{ font-size:8px; }
+    .fx .orank{ font-size:8px; }
+    .fx .mth{ font-size:8px; margin-left:16px; }
+  }
+
+  /* Mid-size tablets: ease the fixed micro font up a touch. */
+  @media (min-width: 641px) and (max-width: 900px){
+    :root{ --f:12px; --fs:10.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="cardtabs" class="cardtabs" hidden></div>
+  <nav class="nav">
+    <span class="navbrand" title="Lockpick MMA" aria-label="Lockpick MMA">
+      <svg class="locksvg" viewBox="0 0 40 40" width="26" height="26" role="img" aria-hidden="true">
+        <defs>
+          <linearGradient id="goldgrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%"  stop-color="#7a5f16"/>
+            <stop offset="22%" stop-color="#e9d27a"/>
+            <stop offset="45%" stop-color="#b8932b"/>
+            <stop offset="60%" stop-color="#f6e9a8"/>
+            <stop offset="80%" stop-color="#9c7d1e"/>
+            <stop offset="100%" stop-color="#caa233"/>
+          </linearGradient>
+          <linearGradient id="silvergrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%"   stop-color="#9aa0ab"/>
+            <stop offset="35%"  stop-color="#e9edf2"/>
+            <stop offset="60%"  stop-color="#c4c9d2"/>
+            <stop offset="100%" stop-color="#8a909b"/>
+          </linearGradient>
+        </defs>
+        <!-- shackle: bursts open (right leg lifts + rotates) -->
+        <path class="shackle" d="M12 19 V13 a8 8 0 0 1 16 0 V19"
+              fill="none" stroke="url(#goldgrad)" stroke-width="3" stroke-linecap="round"/>
+        <!-- body -->
+        <rect class="lockbody" x="9" y="19" width="22" height="16" rx="3"
+              fill="url(#goldgrad)" stroke="#7a5f16" stroke-width="1"/>
+        <!-- keyway -->
+        <circle cx="20" cy="26" r="2.4" fill="#241c02"/>
+        <rect x="19" y="26" width="2" height="5" rx="1" fill="#241c02"/>
+        <!-- silver pick tool in the keyway -->
+        <path class="pick" d="M20 26 L33 16" stroke="url(#silvergrad)" stroke-width="1.6"
+              stroke-linecap="round" fill="none"/>
+        <!-- burst sparks (appear as it pops) -->
+        <g class="spark" fill="url(#goldgrad)">
+          <circle cx="31" cy="9"  r="1.3"/>
+          <circle cx="34" cy="14" r="1"/>
+          <circle cx="28" cy="6"  r="0.9"/>
+        </g>
+      </svg>
+    </span>
+    <button class="navbtn active" data-view="card">Card</button>
+    <button class="navbtn" data-view="fighters">Fighter Rankings</button>
+    <button class="navbtn" data-view="promos">Promotion Rankings</button>
+    <div class="navright">
+      <div id="bettotals" class="bettotals" title="Risk = total staked across the slate | Win = total profit if every pick wins" hidden></div>
+      <label class="bankroll" title="enter bankroll to convert slate % to $ stakes">$
+        <input id="bankroll" type="number" min="0" step="0.01" inputmode="decimal" placeholder="bankroll"></label>
+      <div class="modetoggle" title="EDGE: only bets within the model gate, at Kelly sizes | SLATE: a pick on every fight, fully invested">
+        <button id="mode-edge" class="modebtn active">EDGE</button>
+        <button id="mode-slate" class="modebtn">SLATE</button>
+      </div>
+    </div>
+  </nav>
+
+  <section id="view-card" class="view">
+    <header class="ev">
+      <h1 id="ev-name">—</h1>
+      <span class="date" id="ev-date"></span>
+      <span class="watch" id="ev-watch"></span>
+      <span class="legend">click a bout to expand both histories</span>
+      <p class="cardsum" id="ev-summary"></p>
+    </header>
+    <div id="card"></div>
+  </section>
+
+  <section id="view-fighters" class="view" hidden>
+    <h1 class="vtitle">Fighter Rankings</h1>
+    <p class="subtle">In-house model — headline rank blends opponent-adjusted Elo (established skill) with the round-robin's predicted dominance (current form). Tier 1–3 promotions, active careers.</p>
+    <div id="fdiv" class="divsel"></div>
+    <div id="fviewctl"></div>
+    <div id="ftable"></div>
+  </section>
+
+  <section id="view-promos" class="view" hidden>
+    <h1 class="vtitle">Promotion Rankings</h1>
+    <p class="subtle">Talent mass = Σ (RR-WIN% − 50%) over each org's roster of last-180-day, ranking-qualified fighters (assigned to the org they last fought in) — volume × proportion in one number. Sorted by talent mass, then RR-WIN%, then Avg Elo, then roster size. P4P pools every division; the weight-class chips filter to one division.</p>
+    <div id="pdiv" class="divsel"></div>
+    <div id="ptable"></div>
+  </section>
+</div>
+
+<script>
+// Payload is EITHER a single card {event,bouts,fighterRanks,promoRanks} (the default
+// build_event output) OR a multi-promotion wrapper {__cards__:[{key,label,data},...]}
+// (the tab composer). `DATA` is always the ACTIVE card's data, so every renderer below
+// is unchanged; a single-card build has no __cards__ and behaves exactly as before.
+const __PAYLOAD__ = /*__DATA__*/{"event": {"id": 325349, "name": "UFC 319: Du Plessis vs. Chimaev", "date": "August 16th 2025", "summary": "ARCHIVAL RECONSTRUCTION — UFC 319 exactly as the stack would have served it on fight night, August 16th 2025. Lines are the DraftKings close (best-price across the archived BFO board where captured); model probabilities are the walk-forward eval predictions (trained through 2024 — no knowledge of this card's results); picks are the serving EDGE gate applied mechanically. Histories, records and ages stop the night before the fights. Rankings pages are not reconstructed.", "broadcast": "ESPN+ PPV", "event_time": "6:00 PM ET"}, "bouts": [{"weight": 185, "fav": {"id": 186918, "name": "Khamzat Chimaev", "url_name": "", "division_abbr": "MW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -270, "best": -180, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": -270}, "fm_odds": null, "records": {"all": {"tot": [14, 0, 0], "ko": [5, 0, 0], "sub": [6, 0, 0], "dec": [2, 0, 0], "ud": [1, 0, 0], "sd": [1, 0, 0]}, "ufc": {"tot": [8, 0, 0], "ko": [2, 0, 0], "sub": [4, 0, 0], "dec": [2, 0, 0], "ud": [1, 0, 0], "sd": [1, 0, 0]}, "l3y": {"tot": [3, 0, 0], "ko": [0, 0, 0], "sub": [2, 0, 0], "dec": [1, 0, 0], "ud": [0, 0, 0], "sd": [1, 0, 0]}}, "history": [{"date": "2024-10-26", "opp": "Robert Whittaker", "opp_rank": "#4 MW", "result": "W", "round": "1", "method": "Submission (Face Crank)"}, {"date": "2023-10-21", "opp": "Kamaru Usman", "opp_rank": "#5 WW", "result": "W", "round": "3", "method": "Decision (Majority)"}, {"date": "2022-09-10", "opp": "Kevin Holland", "opp_rank": "#39 WW", "result": "W", "round": "1", "method": "Submission (Brabo Choke)"}, {"date": "2022-04-09", "opp": "Gilbert Burns", "opp_rank": "#14 WW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-10-30", "opp": "Jingliang Li", "opp_rank": "#26 WW", "result": "W", "round": "1", "method": "Technical Submission (Rear Naked Choke)"}, {"date": "2020-09-19", "opp": "Gerald Meerschaert", "opp_rank": "#61 MW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2020-07-25", "opp": "Rhys McKee", "opp_rank": "#151 LW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2020-07-15", "opp": "John Phillips", "opp_rank": "#165 MW", "result": "W", "round": "2", "method": "Submission (Brabo Choke)"}, {"date": "2019-10-04", "opp": "Mzwandile Hlongwa", "opp_rank": "#273 MW", "result": "W", "round": "2", "method": "SUB"}, {"date": "2019-04-19", "opp": "Ikram Aliskerov", "opp_rank": "#156 MW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2018-12-22", "opp": "Sidney Wheeler", "opp_rank": "#308 WW", "result": "W", "round": "1", "method": "TKO (Submission to Punches)"}, {"date": "2018-11-16", "opp": "Marko Kisic", "opp_rank": "#342 MW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2018-08-18", "opp": "Ole Magnor", "opp_rank": "#657 WW", "result": "W", "round": "1", "method": "Submission (Rear-Naked Choke)"}, {"date": "2018-05-26", "opp": "Gard Olve Sagen", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Punches)"}], "ratings": {"measurables": {"height_in": 74.0, "reach_in": 75.0, "weight_lbs": 185, "stance": "Orthodox", "age": 31}}}, "dog": {"id": 121477, "name": "Dricus Du Plessis", "url_name": "", "division_abbr": "MW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 220, "best": 220, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": 220}, "fm_odds": null, "records": {"all": {"tot": [23, 2, 0], "ko": [9, 1, 0], "sub": [11, 1, 0], "dec": [3, 0, 0], "ud": [2, 0, 0], "sd": [1, 0, 0]}, "ufc": {"tot": [9, 0, 0], "ko": [4, 0, 0], "sub": [2, 0, 0], "dec": [3, 0, 0], "ud": [2, 0, 0], "sd": [1, 0, 0]}, "l3y": {"tot": [6, 0, 0], "ko": [2, 0, 0], "sub": [2, 0, 0], "dec": [2, 0, 0], "ud": [1, 0, 0], "sd": [1, 0, 0]}}, "history": [{"date": "2025-02-08", "opp": "Sean Strickland", "opp_rank": "#6 MW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2024-08-17", "opp": "Israel Adesanya", "opp_rank": "#2 MW", "result": "W", "round": "4", "method": "Submission (Face Crank)"}, {"date": "2024-01-20", "opp": "Sean Strickland", "opp_rank": "#5 MW", "result": "W", "round": "5", "method": "Decision (Split)"}, {"date": "2023-07-08", "opp": "Robert Whittaker", "opp_rank": "#7 MW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2023-03-04", "opp": "Derek Brunson", "opp_rank": "#36 MW", "result": "W", "round": "2", "method": "TKO (Corner Stoppage)"}, {"date": "2022-12-10", "opp": "Darren Till", "opp_rank": "#63 MW", "result": "W", "round": "3", "method": "Submission (Face Crank)"}, {"date": "2022-07-02", "opp": "Brad Tavares", "opp_rank": "#57 MW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-07-10", "opp": "Trevin Giles", "opp_rank": "#37 MW", "result": "W", "round": "2", "method": "KO (Punches)"}, {"date": "2020-10-10", "opp": "Markus Perez", "opp_rank": "#115 MW", "result": "W", "round": "1", "method": "KO (Punches)"}, {"date": "2019-12-14", "opp": "Brendan Lesar", "opp_rank": "#216 MW", "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2019-09-14", "opp": "Joilton Lutterbach", "opp_rank": "#166 WW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2018-10-06", "opp": "Roberto Soldic", "opp_rank": "#120 WW", "result": "L", "round": "3", "method": "KO (Punches)"}, {"date": "2018-04-14", "opp": "Roberto Soldic", "opp_rank": "#95 WW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2017-08-19", "opp": "Yannick Bahati", "opp_rank": "#120 MW", "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2017-05-13", "opp": "Jose Mauricio da Rocha Jr.", "opp_rank": "#875 WW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2016-12-09", "opp": "Rafal Haratyk", "opp_rank": "#192 LHW", "result": "W", "round": "2", "method": "Submission (Guillotine Choke)"}, {"date": "2016-06-17", "opp": "Martin van Staden", "opp_rank": "#337 WW", "result": "W", "round": "3", "method": "Submission (Guillotine Choke)"}, {"date": "2015-12-12", "opp": "Bruno Belabela Mukulu", "opp_rank": null, "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2015-06-06", "opp": "Dino Bagattin", "opp_rank": "#324 WW", "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2015-02-21", "opp": "Darren Daniel", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2014-08-30", "opp": "Garreth McLellan", "opp_rank": "#141 MW", "result": "L", "round": "3", "method": "Submission (Guillotine Choke)"}, {"date": "2014-02-27", "opp": "Donavin Hawkey", "opp_rank": "#486 MW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2013-10-10", "opp": "Johannes Coenraad Lamprecht", "opp_rank": "#652 MW", "result": "W", "round": "3", "method": "Submission (Rear-Naked Choke)"}, {"date": "2013-09-12", "opp": "Bruno Belabela Mukulu", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2013-07-25", "opp": "Tshikangu Makuebo", "opp_rank": null, "result": "W", "round": "1", "method": "TKO"}], "ratings": {"measurables": {"height_in": 73.0, "reach_in": 76.0, "weight_lbs": 185, "stance": "Switch", "age": 31}}}, "dk_markets": null, "model_fav": 57.9, "pick": {"market": "Moneyline", "bet": "Dricus Du Plessis", "side": "Dricus Du Plessis", "dk_odds": 220, "prob": 0.4206, "ev_pct": 34.6, "gated": true, "conviction": "med", "edge_slate_pct": 3.3, "slate_pct": 3.3, "thesis": "EDGE gate (mechanical): model 42.1% vs de-vigged DK close 30.0% = +12.1% edge (≥ 5%); line within cuts [-250, +250]; stake 0.21 × full Kelly = 3.3% bankroll."}, "watch": "ESPN+ PPV", "fight_time": "11:20 PM ET"}, {"weight": 145, "fav": {"id": 171972, "name": "Aaron Pico", "url_name": "", "division_abbr": "FW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -155, "best": -145, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": -155}, "fm_odds": null, "records": {"all": {"tot": [13, 4, 0], "ko": [9, 3, 0], "sub": [2, 1, 0], "dec": [2, 0, 0], "ud": [2, 0, 0], "sd": [0, 0, 0]}, "ufc": {"tot": [0, 0, 0], "ko": [0, 0, 0], "sub": [0, 0, 0], "dec": [0, 0, 0], "ud": [0, 0, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [3, 1, 0], "ko": [2, 1, 0], "sub": [0, 0, 0], "dec": [1, 0, 0], "ud": [1, 0, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2024-02-24", "opp": "Henry Corrales", "opp_rank": "#142 FW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2023-09-23", "opp": "Pedro Carvalho", "opp_rank": "#108 FW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2023-04-22", "opp": "James Gonzalez", "opp_rank": "#311 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-10-01", "opp": "Jeremy Kennedy", "opp_rank": "#43 FW", "result": "L", "round": "1", "method": "TKO (Shoulder Injury)"}, {"date": "2022-04-15", "opp": "Adli Edwards", "opp_rank": null, "result": "W", "round": "3", "method": "TKO (Punches)"}, {"date": "2021-11-12", "opp": "Justin Gonzales", "opp_rank": "#74 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-06-11", "opp": "Aiden Lee", "opp_rank": "#181 FW", "result": "W", "round": "3", "method": "Submission (Anaconda Choke)"}, {"date": "2020-11-12", "opp": "John de Jesus", "opp_rank": "#222 FW", "result": "W", "round": "2", "method": "KO (Punch)"}, {"date": "2020-07-24", "opp": "Chris Hatley Jr.", "opp_rank": "#364 FW", "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2020-01-25", "opp": "Daniel Carey", "opp_rank": "#475 FW", "result": "W", "round": "2", "method": "KO (Punch)"}, {"date": "2019-06-14", "opp": "Adam Borics", "opp_rank": "#87 FW", "result": "L", "round": "2", "method": "TKO (Flying Knee and Punches)"}, {"date": "2019-01-26", "opp": "Henry Corrales", "opp_rank": "#46 FW", "result": "L", "round": "1", "method": "KO (Punches)"}, {"date": "2018-09-29", "opp": "Leandro Higo", "opp_rank": "#64 BW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2018-05-12", "opp": "Lee Morrison", "opp_rank": "#432 WW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2018-01-20", "opp": "Shane Kruchten", "opp_rank": "#422 FW", "result": "W", "round": "1", "method": "KO (Punch to the Body)"}, {"date": "2017-09-23", "opp": "Justin Linn", "opp_rank": null, "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2017-06-24", "opp": "Zach Freeman", "opp_rank": "#490 LW", "result": "L", "round": "1", "method": "Submission (Guillotine Choke)"}], "ratings": {"measurables": {"age": 28}}}, "dog": {"id": 152749, "name": "Lerone Murphy", "url_name": "", "division_abbr": "FW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 130, "best": 140, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": 130}, "fm_odds": null, "records": {"all": {"tot": [16, 0, 1], "ko": [7, 0, 0], "sub": [0, 0, 0], "dec": [9, 0, 0], "ud": [8, 0, 0], "sd": [1, 0, 0]}, "ufc": {"tot": [8, 0, 1], "ko": [2, 0, 0], "sub": [0, 0, 0], "dec": [6, 0, 0], "ud": [5, 0, 0], "sd": [1, 0, 0]}, "l3y": {"tot": [5, 0, 0], "ko": [0, 0, 0], "sub": [0, 0, 0], "dec": [5, 0, 0], "ud": [4, 0, 0], "sd": [1, 0, 0]}}, "history": [{"date": "2025-04-05", "opp": "Josh Emmett", "opp_rank": "#66 FW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2024-10-26", "opp": "Dan Ige", "opp_rank": "#57 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-05-18", "opp": "Edson Barboza", "opp_rank": "#53 FW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2023-07-22", "opp": "Joshua Culibao", "opp_rank": "#104 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2023-03-18", "opp": "Gabriel Santos", "opp_rank": "#16 FW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2021-10-30", "opp": "Makwan Amirkhani", "opp_rank": "#147 FW", "result": "W", "round": "2", "method": "KO (Knee)"}, {"date": "2021-01-20", "opp": "Douglas Silva de Andrade", "opp_rank": "#77 BW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2020-07-15", "opp": "Ricardo Ramos", "opp_rank": "#25 BW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2019-09-07", "opp": "Zubaira Tukhugov", "opp_rank": "#75 FW", "result": "D", "round": "3", "method": "Draw"}, {"date": "2019-05-18", "opp": "Manolo Scianna", "opp_rank": "#728 FW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2018-11-30", "opp": "Ayton De Paepe", "opp_rank": "#613 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-09-01", "opp": "James McErlean", "opp_rank": "#543 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-04-14", "opp": "Terry Doyle", "opp_rank": null, "result": "W", "round": "1", "method": "TKO"}, {"date": "2017-09-30", "opp": "Nathan Thompson", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2017-04-15", "opp": "Jamie Lee", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2017-02-11", "opp": "Tyler John Thomas", "opp_rank": "#836 LW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2016-03-05", "opp": "Martin Fouda", "opp_rank": "#580 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}], "ratings": {"measurables": {"height_in": 69.0, "reach_in": 73.0, "weight_lbs": 145, "stance": "Orthodox", "age": 34}}}, "dk_markets": null, "model_fav": 35.6, "pick": {"market": "Moneyline", "bet": "Lerone Murphy", "side": "Lerone Murphy", "dk_odds": 130, "prob": 0.6441, "ev_pct": 48.1, "gated": true, "conviction": "med", "edge_slate_pct": 7.78, "slate_pct": 7.78, "thesis": "EDGE gate (mechanical): model 64.4% vs de-vigged DK close 41.7% = +22.7% edge (≥ 5%); line within cuts [-250, +250]; stake 0.21 × full Kelly = 7.78% bankroll."}, "watch": "ESPN+ PPV", "fight_time": "11:00 PM ET"}, {"weight": 170, "fav": {"id": 93495, "name": "Carlos Prates", "url_name": "", "division_abbr": "WW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -198, "best": -185, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": -198}, "fm_odds": null, "records": {"all": {"tot": [21, 7, 0], "ko": [16, 2, 0], "sub": [3, 3, 0], "dec": [2, 2, 0], "ud": [1, 2, 0], "sd": [1, 0, 0]}, "ufc": {"tot": [4, 1, 0], "ko": [4, 0, 0], "sub": [0, 0, 0], "dec": [0, 1, 0], "ud": [0, 1, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [8, 1, 0], "ko": [8, 0, 0], "sub": [0, 0, 0], "dec": [0, 1, 0], "ud": [0, 1, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2025-04-26", "opp": "Ian Garry", "opp_rank": "#20 WW", "result": "L", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2024-11-09", "opp": "Neil Magny", "opp_rank": "#62 WW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2024-08-17", "opp": "Jingliang Li", "opp_rank": "#41 WW", "result": "W", "round": "2", "method": "KO (Punch)"}, {"date": "2024-06-08", "opp": "Charles Radtke", "opp_rank": "#209 WW", "result": "W", "round": "1", "method": "KO (Knee to the Body)"}, {"date": "2024-02-10", "opp": "Trevin Giles", "opp_rank": "#164 WW", "result": "W", "round": "2", "method": "KO (Punch)"}, {"date": "2023-08-29", "opp": "Mitch Ramirez", "opp_rank": "#85 WW", "result": "W", "round": "2", "method": "TKO (Punch)"}, {"date": "2023-03-10", "opp": "Eduardo Ramon", "opp_rank": "#242 WW", "result": "W", "round": "1", "method": "KO (Knee)"}, {"date": "2022-11-04", "opp": "Moacir Rocha", "opp_rank": "#380 WW", "result": "W", "round": "1", "method": "KO (Head Kick and Punches)"}, {"date": "2022-09-03", "opp": "Charles Oliveira", "opp_rank": "#436 WW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2022-06-04", "opp": "Taffarel Brasil", "opp_rank": "#273 WW", "result": "W", "round": "2", "method": "KO"}, {"date": "2021-12-18", "opp": "Alan Silva", "opp_rank": "#1001 LW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2019-12-04", "opp": "Joseph Luciano", "opp_rank": "#319 MW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-06-20", "opp": "Gadzhimurad Abdullaev", "opp_rank": "#291 WW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-04-25", "opp": "Gunther Kalunda", "opp_rank": "#357 WW", "result": "W", "round": "2", "method": "KO (Body Kick)"}, {"date": "2018-12-14", "opp": "Tuluosibake Kuerbanjiang", "opp_rank": "#799 WW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2017-04-07", "opp": "Jiang Tao", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2017-01-07", "opp": "Mikhail Romanchuk", "opp_rank": null, "result": "L", "round": "1", "method": "TKO (Punches)"}, {"date": "2016-11-06", "opp": "Jiming Sun", "opp_rank": "#960 WW", "result": "W", "round": "1", "method": "Submission (Rear-Naked Choke)"}, {"date": "2016-01-10", "opp": "Yousef Wehbe", "opp_rank": null, "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2014-10-25", "opp": "Ary Santos", "opp_rank": "#396 MW", "result": "L", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2014-06-14", "opp": "Bruno Pereira", "opp_rank": "#344 LW", "result": "W", "round": "3", "method": "Submission (Armbar)"}, {"date": "2013-11-22", "opp": "Claudiere Freitas", "opp_rank": "#251 LW", "result": "L", "round": "1", "method": "Submission (Triangle Choke)"}, {"date": "2013-11-10", "opp": "Cosme Santos", "opp_rank": null, "result": "W", "round": "1", "method": "KO (Kick to the Body)"}, {"date": "2013-09-20", "opp": "Diogo Cavalcanti", "opp_rank": "#416 LW", "result": "L", "round": "1", "method": "Submission (Heel Hook)"}, {"date": "2013-05-11", "opp": "Rodrigo Haro", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Majority)"}, {"date": "2012-05-13", "opp": "Rafael Nunes", "opp_rank": "#320 LW", "result": "L", "round": "1", "method": "TKO (Retirement)"}, {"date": "2012-03-24", "opp": "Renato da Silva Jr.", "opp_rank": null, "result": "W", "round": "3", "method": "TKO (Punches)"}, {"date": "2012-03-17", "opp": "Sergio Vieira", "opp_rank": "#661 FW", "result": "W", "round": "2", "method": "TKO (Punches)"}], "ratings": {"measurables": {"height_in": 73.0, "reach_in": 78.0, "weight_lbs": 170, "stance": "Switch", "age": 31}}}, "dog": {"id": 73564, "name": "Geoff Neal", "url_name": "", "division_abbr": "WW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 164, "best": 165, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": 164}, "fm_odds": null, "records": {"all": {"tot": [16, 6, 0], "ko": [10, 1, 0], "sub": [2, 2, 0], "dec": [4, 3, 0], "ud": [3, 2, 0], "sd": [1, 1, 0]}, "ufc": {"tot": [8, 4, 0], "ko": [5, 0, 0], "sub": [1, 1, 0], "dec": [2, 3, 0], "ud": [1, 2, 0], "sd": [1, 1, 0]}, "l3y": {"tot": [1, 2, 0], "ko": [1, 0, 0], "sub": [0, 1, 0], "dec": [0, 1, 0], "ud": [0, 0, 0], "sd": [0, 1, 0]}}, "history": [{"date": "2024-10-26", "opp": "Rafael dos Anjos", "opp_rank": "#108 WW", "result": "W", "round": "1", "method": "TKO (Knee Injury)"}, {"date": "2024-02-17", "opp": "Ian Garry", "opp_rank": "#4 WW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2023-03-04", "opp": "Shavkat Rakhmonov", "opp_rank": "#2 WW", "result": "L", "round": "3", "method": "Submission (Rear-Naked Choke)"}, {"date": "2022-08-06", "opp": "Vicente Luque", "opp_rank": "#7 WW", "result": "W", "round": "3", "method": "KO (Punches)"}, {"date": "2021-12-11", "opp": "Santiago Ponzinibbio", "opp_rank": "#15 WW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2021-05-08", "opp": "Neil Magny", "opp_rank": "#22 WW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2020-12-19", "opp": "Stephen Thompson", "opp_rank": "#64 WW", "result": "L", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2019-12-14", "opp": "Mike Perry", "opp_rank": "#121 WW", "result": "W", "round": "1", "method": "TKO (Head Kick and Punches)"}, {"date": "2019-07-27", "opp": "Niko Price", "opp_rank": "#88 WW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2019-01-19", "opp": "Belal Muhammad", "opp_rank": "#18 WW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-09-08", "opp": "Frank Camacho", "opp_rank": "#173 WW", "result": "W", "round": "2", "method": "KO (Head Kick)"}, {"date": "2018-02-18", "opp": "Brian Camozzi", "opp_rank": "#168 WW", "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2017-07-25", "opp": "Chase Waldon", "opp_rank": "#162 MW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2017-07-14", "opp": "Bilal Williams", "opp_rank": "#226 WW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2017-01-28", "opp": "Kevin Holland", "opp_rank": "#138 MW", "result": "L", "round": "3", "method": "TKO (Punches)"}, {"date": "2015-10-23", "opp": "Ty Flores", "opp_rank": "#583 MW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2014-11-14", "opp": "Charlie Ontiveros", "opp_rank": "#267 WW", "result": "W", "round": "2", "method": "TKO (Retirement)"}, {"date": "2014-06-20", "opp": "Christopher Anthony", "opp_rank": "#676 MW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2013-08-17", "opp": "Armando Servin", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2013-04-19", "opp": "Martin Sano", "opp_rank": null, "result": "L", "round": "3", "method": "Submission (Rear Naked Choke)"}, {"date": "2013-01-12", "opp": "Zack Board", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2012-08-25", "opp": "David McAfee", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}], "ratings": {"measurables": {"height_in": 71.0, "reach_in": 75.0, "weight_lbs": 170, "stance": "Southpaw", "age": 34}}}, "dk_markets": null, "model_fav": 74.3, "pick": {"market": "Moneyline", "bet": "Carlos Prates", "side": "Carlos Prates", "dk_odds": -198, "prob": 0.743, "ev_pct": 11.8, "gated": true, "conviction": "med", "edge_slate_pct": 4.92, "slate_pct": 4.92, "thesis": "EDGE gate (mechanical): model 74.3% vs de-vigged DK close 63.7% = +10.6% edge (≥ 5%); line within cuts [-250, +250]; stake 0.21 × full Kelly = 4.92% bankroll."}, "watch": "ESPN+ PPV", "fight_time": "10:40 PM ET"}, {"weight": 185, "fav": {"id": 91794, "name": "Michael Page", "url_name": "", "division_abbr": "MW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -218, "best": -200, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": -218}, "fm_odds": null, "records": {"all": {"tot": [23, 3, 1], "ko": [13, 1, 0], "sub": [3, 0, 0], "dec": [7, 2, 0], "ud": [5, 1, 0], "sd": [2, 1, 0]}, "ufc": {"tot": [2, 1, 1], "ko": [0, 0, 0], "sub": [0, 0, 0], "dec": [2, 1, 0], "ud": [2, 1, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [3, 1, 1], "ko": [1, 0, 0], "sub": [0, 0, 0], "dec": [2, 1, 0], "ud": [2, 1, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2025-02-01", "opp": "Sharabutdin Magomedov", "opp_rank": "#9 MW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-07-27", "opp": "Ian Garry", "opp_rank": "#3 WW", "result": "D", "round": null, "method": null}, {"date": "2024-06-29", "opp": "Ian Garry", "opp_rank": "#4 WW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-03-09", "opp": "Kevin Holland", "opp_rank": "#24 WW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2023-03-10", "opp": "Goiti Yamauchi", "opp_rank": "#11 WW", "result": "W", "round": "1", "method": "TKO (Leg Kick)"}, {"date": "2022-05-13", "opp": "Logan Storley", "opp_rank": "#34 WW", "result": "L", "round": "5", "method": "Decision (Split)"}, {"date": "2021-10-01", "opp": "Douglas Lima", "opp_rank": "#7 WW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2021-05-07", "opp": "Derek Anderson", "opp_rank": "#52 WW", "result": "W", "round": "1", "method": "TKO (Doctor Stoppage)"}, {"date": "2020-10-10", "opp": "Ross Houston", "opp_rank": "#173 WW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-12-28", "opp": "Shinsho Anzai", "opp_rank": "#537 WW", "result": "W", "round": "2", "method": "KO (Punch)"}, {"date": "2019-11-23", "opp": "Giovanni Melillo", "opp_rank": "#315 WW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2019-09-27", "opp": "Richard Kiely", "opp_rank": "#462 WW", "result": "W", "round": "1", "method": "KO (Flying Knee)"}, {"date": "2019-05-11", "opp": "Douglas Lima", "opp_rank": "#4 WW", "result": "L", "round": "2", "method": "KO (Punches)"}, {"date": "2019-02-16", "opp": "Paul Daley", "opp_rank": "#30 WW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2018-05-25", "opp": "David Rickels", "opp_rank": "#67 WW", "result": "W", "round": "2", "method": "TKO (Retirement)"}, {"date": "2016-11-19", "opp": "Fernando Gonzalez", "opp_rank": "#200 WW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2016-07-16", "opp": "Evangelista Santos", "opp_rank": "#325 WW", "result": "W", "round": "2", "method": "KO (Flying Knee)"}, {"date": "2016-04-22", "opp": "Jeremie Holloway", "opp_rank": "#367 WW", "result": "W", "round": "1", "method": "Submission (Achilles Lock)"}, {"date": "2015-10-23", "opp": "Charlie Ontiveros", "opp_rank": "#477 WW", "result": "W", "round": "1", "method": "TKO (Elbows)"}, {"date": "2015-07-17", "opp": "Rudy Bears", "opp_rank": "#341 WW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2014-10-10", "opp": "Nah-Shon Burrell", "opp_rank": "#111 WW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2014-05-17", "opp": "Ricky Rainey", "opp_rank": "#96 MW", "result": "W", "round": "1", "method": "TKO (Punch)"}, {"date": "2013-04-12", "opp": "Ramdan Mohamed", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2013-03-21", "opp": "Ryan Sanders", "opp_rank": "#523 WW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2012-11-02", "opp": "Haitham El-Sayed", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Doctor Stoppage)"}, {"date": "2012-04-07", "opp": "Miguel Bernard", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Armbar)"}, {"date": "2012-02-04", "opp": "Ben Dishman", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Tornado Kick)"}], "ratings": {"measurables": {"height_in": 75.0, "reach_in": 79.0, "weight_lbs": 170, "stance": "Switch", "age": 38}}}, "dog": {"id": 80751, "name": "Jared Cannonier", "url_name": "", "division_abbr": "MW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 180, "best": 188, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": 180}, "fm_odds": null, "records": {"all": {"tot": [18, 8, 1], "ko": [10, 3, 0], "sub": [3, 0, 0], "dec": [5, 5, 0], "ud": [3, 5, 0], "sd": [2, 0, 0]}, "ufc": {"tot": [10, 8, 0], "ko": [7, 3, 0], "sub": [0, 0, 0], "dec": [3, 5, 0], "ud": [2, 5, 0], "sd": [1, 0, 0]}, "l3y": {"tot": [3, 2, 0], "ko": [1, 1, 0], "sub": [0, 0, 0], "dec": [2, 1, 0], "ud": [1, 1, 0], "sd": [1, 0, 0]}}, "history": [{"date": "2025-02-15", "opp": "Gregory Rodrigues", "opp_rank": "#33 MW", "result": "W", "round": "4", "method": "TKO (Punches)"}, {"date": "2024-08-24", "opp": "Caio Borralho", "opp_rank": "#9 MW", "result": "L", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2024-06-08", "opp": "Nassourdine Imavov", "opp_rank": "#36 MW", "result": "L", "round": "4", "method": "TKO (Punches)"}, {"date": "2023-06-17", "opp": "Marvin Vettori", "opp_rank": "#8 MW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2022-12-17", "opp": "Sean Strickland", "opp_rank": "#7 MW", "result": "W", "round": "5", "method": "Decision (Split)"}, {"date": "2022-07-02", "opp": "Israel Adesanya", "opp_rank": "#1 MW", "result": "L", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2022-02-12", "opp": "Derek Brunson", "opp_rank": "#10 MW", "result": "W", "round": "2", "method": "KO (Elbows)"}, {"date": "2021-08-21", "opp": "Kelvin Gastelum", "opp_rank": "#19 MW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2020-10-24", "opp": "Robert Whittaker", "opp_rank": "#4 MW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-09-28", "opp": "Jack Hermansson", "opp_rank": "#6 MW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2019-05-11", "opp": "Anderson Silva", "opp_rank": "#184 MW", "result": "W", "round": "1", "method": "TKO (Leg Kick)"}, {"date": "2018-11-03", "opp": "David Branch", "opp_rank": "#8 MW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2018-05-19", "opp": "Dominick Reyes", "opp_rank": "#19 LHW", "result": "L", "round": "1", "method": "TKO (Punches)"}, {"date": "2017-12-16", "opp": "Jan Blachowicz", "opp_rank": "#32 LHW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2017-07-07", "opp": "Nick Roehrick", "opp_rank": null, "result": "D", "round": null, "method": null}, {"date": "2017-07-07", "opp": "Nick Roehrick", "opp_rank": "#160 LHW", "result": "W", "round": "3", "method": "TKO (Elbows)"}, {"date": "2017-02-11", "opp": "Glover Teixeira", "opp_rank": "#10 LHW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2016-12-03", "opp": "Ion Cutelaba", "opp_rank": "#42 LHW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2016-04-10", "opp": "Cyril Asker", "opp_rank": "#74 HW", "result": "W", "round": "1", "method": "KO (Punches and Elbows)"}, {"date": "2015-01-03", "opp": "Shawn Jordan", "opp_rank": "#71 HW", "result": "L", "round": "1", "method": "KO (Punches)"}, {"date": "2014-01-22", "opp": "Tony Lopez", "opp_rank": "#61 HW", "result": "W", "round": "5", "method": "Decision (Split)"}, {"date": "2013-10-16", "opp": "Jermaine Haughton", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2013-04-30", "opp": "Stephen Waalkes", "opp_rank": "#103 LHW", "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2013-02-13", "opp": "Joshua Ofiu", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2011-10-28", "opp": "Matt Herringshaw", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Punches)"}, {"date": "2011-10-12", "opp": "Jason Coomes", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Armbar)"}, {"date": "2011-06-19", "opp": "Alton Prince", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}], "ratings": {"measurables": {"height_in": 71.0, "reach_in": 77.0, "weight_lbs": 185, "stance": "Switch", "age": 41}}}, "dk_markets": null, "model_fav": 61.5, "pick": null, "watch": "ESPN+ PPV", "fight_time": "10:20 PM ET"}, {"weight": 125, "fav": {"id": 160822, "name": "Kai Asakura", "url_name": "", "division_abbr": "FLW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -298, "best": -298, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": -298}, "fm_odds": null, "records": {"all": {"tot": [21, 5, 0], "ko": [13, 3, 0], "sub": [3, 1, 0], "dec": [5, 1, 0], "ud": [4, 1, 0], "sd": [1, 0, 0]}, "ufc": {"tot": [0, 1, 0], "ko": [0, 0, 0], "sub": [0, 1, 0], "dec": [0, 0, 0], "ud": [0, 0, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [2, 1, 0], "ko": [2, 0, 0], "sub": [0, 1, 0], "dec": [0, 0, 0], "ud": [0, 0, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2024-12-07", "opp": "Alexandre Pantoja", "opp_rank": "#1 FLW", "result": "L", "round": "2", "method": "Technical Submission (Rear-Naked Choke)"}, {"date": "2023-12-31", "opp": "Juan Archuleta", "opp_rank": "#24 BW", "result": "W", "round": "2", "method": "TKO (Knee to the Body and Punches)"}, {"date": "2023-05-06", "opp": "Yuki Motoya", "opp_rank": "#37 BW", "result": "W", "round": "3", "method": "KO (Knee to the Body)"}, {"date": "2021-12-31", "opp": "Kenta Takizawa", "opp_rank": "#139 BW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-12-31", "opp": "Hiromasa Ougikubo", "opp_rank": "#28 BW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-09-19", "opp": "Alan Yamaniha", "opp_rank": "#232 BW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-06-13", "opp": "Shuto Watanabe", "opp_rank": "#227 BW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2020-12-31", "opp": "Kyoji Horiguchi", "opp_rank": "#1 BW", "result": "L", "round": "1", "method": "KO (Punches)"}, {"date": "2020-09-27", "opp": "Shoji Maruyama", "opp_rank": "#388 BW", "result": "W", "round": "1", "method": "TKO (Punches and Soccer Kick)"}, {"date": "2020-08-10", "opp": "Hiromasa Ougikubo", "opp_rank": "#23 BW", "result": "W", "round": "1", "method": "TKO (Knee and Soccer Kicks)"}, {"date": "2019-12-31", "opp": "Manel Kape", "opp_rank": "#24 BW", "result": "L", "round": "2", "method": "TKO (Punches)"}, {"date": "2019-10-12", "opp": "Yuta Sasaki", "opp_rank": "#80 BW", "result": "W", "round": "1", "method": "TKO (Broken Jaw)"}, {"date": "2019-08-18", "opp": "Kyoji Horiguchi", "opp_rank": "#1 BW", "result": "W", "round": "1", "method": "KO (Punches)"}, {"date": "2018-12-30", "opp": "Jae Hoon Moon", "opp_rank": "#349 BW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-09-30", "opp": "Thanongsaklek Chuwattana", "opp_rank": "#253 BW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-05-06", "opp": "Manel Kape", "opp_rank": "#61 BW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2017-12-29", "opp": "Kizaemon Saiga", "opp_rank": "#188 FLW", "result": "W", "round": "2", "method": "TKO (Punches and Knee)"}, {"date": "2017-06-10", "opp": "Jae Hoon Moon", "opp_rank": "#141 FLW", "result": "L", "round": "3", "method": "KO (Punches)"}, {"date": "2017-03-11", "opp": "Heili Alateng", "opp_rank": "#183 BW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2016-09-04", "opp": "Yoichi Oi", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2016-07-02", "opp": "Xiaoyang Liu", "opp_rank": "#114 FLW", "result": "W", "round": "1", "method": "Submission (Rear-Naked Choke)"}, {"date": "2015-12-13", "opp": "Jong Hyun Kwak", "opp_rank": "#344 FLW", "result": "W", "round": "1", "method": "KO (Punches)"}, {"date": "2015-09-06", "opp": "Jung Bin Choi", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Brabo Choke)"}, {"date": "2015-07-19", "opp": "Keigo Takayama", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2015-05-17", "opp": "Satoru Date", "opp_rank": null, "result": "W", "round": "2", "method": "KO (Knee)"}, {"date": "2012-09-16", "opp": "Tomoya Suzuki", "opp_rank": null, "result": "W", "round": "1", "method": "Technical Submission (Armbar)"}], "ratings": {"measurables": {"height_in": 68.0, "reach_in": 69.0, "weight_lbs": 135, "stance": "Orthodox", "age": 31}}}, "dog": {"id": 49560, "name": "Tim Elliott", "url_name": "", "division_abbr": "FLW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 240, "best": 265, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": 240}, "fm_odds": null, "records": {"all": {"tot": [24, 13, 2], "ko": [3, 1, 0], "sub": [9, 6, 0], "dec": [12, 6, 0], "ud": [11, 6, 0], "sd": [1, 0, 0]}, "ufc": {"tot": [13, 10, 1], "ko": [0, 0, 0], "sub": [4, 5, 0], "dec": [9, 5, 0], "ud": [8, 5, 0], "sd": [1, 0, 0]}, "l3y": {"tot": [2, 1, 0], "ko": [0, 0, 0], "sub": [1, 1, 0], "dec": [1, 0, 0], "ud": [1, 0, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2023-12-09", "opp": "Su Mudaerji", "opp_rank": "#132 FLW", "result": "W", "round": "1", "method": "Technical Submission (Arm-Triangle Choke)"}, {"date": "2023-10-21", "opp": "Muhammad Mokaev", "opp_rank": "#13 FLW", "result": "L", "round": "3", "method": "Submission (Arm-Triangle Choke)"}, {"date": "2023-06-03", "opp": "Victor Altamirano", "opp_rank": "#68 FLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-03-05", "opp": "Tagir Ulanbekov", "opp_rank": "#11 FLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-10-09", "opp": "Matheus Nicolau", "opp_rank": "#42 BW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-03-06", "opp": "Jordan Espinosa", "opp_rank": "#76 FLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2020-07-15", "opp": "Ryan Benoit", "opp_rank": "#114 FLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2020-05-30", "opp": "Brandon Royval", "opp_rank": "#34 FLW", "result": "L", "round": "2", "method": "Submission (Arm Triangle Choke)"}, {"date": "2020-01-18", "opp": "Askar Askarov", "opp_rank": "#8 FLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-10-12", "opp": "Deiveson Figueiredo", "opp_rank": "#7 FLW", "result": "L", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2017-12-30", "opp": "Mark De La Rosa", "opp_rank": "#97 BW", "result": "W", "round": "2", "method": "Submission (Anaconda Choke)"}, {"date": "2017-12-16", "opp": "Pietro Menga", "opp_rank": "#41 FLW", "result": "D", "round": null, "method": null}, {"date": "2017-06-10", "opp": "Ben Nguyen", "opp_rank": "#32 FLW", "result": "L", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2017-04-15", "opp": "Louis Smolka", "opp_rank": "#18 FLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2016-12-03", "opp": "Demetrious Johnson", "opp_rank": "#1 FLW", "result": "L", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2016-08-10", "opp": "Hiromasa Ougikubo", "opp_rank": "#23 FLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2016-08-03", "opp": "Eric Shelton", "opp_rank": "#13 FLW", "result": "W", "round": "2", "method": "Decision (Majority)"}, {"date": "2016-07-27", "opp": "Matt Schnell", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2016-07-19", "opp": "Charlie Alaniz", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Bulldog Choke)"}, {"date": "2016-03-04", "opp": "Pedro Nobre", "opp_rank": "#33 FLW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2015-09-19", "opp": "Felipe Efrain", "opp_rank": "#172 FLW", "result": "W", "round": "2", "method": "Submission (Guillotine Choke)"}, {"date": "2015-07-18", "opp": "Iliarde Santos", "opp_rank": "#21 FLW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2015-02-14", "opp": "Zach Makovsky", "opp_rank": "#7 FLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2014-04-26", "opp": "Joseph Benavidez", "opp_rank": "#2 FLW", "result": "L", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2013-11-16", "opp": "Ali Bagautinov", "opp_rank": "#10 FLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2013-08-31", "opp": "Louis Gaudinot", "opp_rank": "#21 FLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2012-12-15", "opp": "Jared Papazian", "opp_rank": "#93 BW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2012-05-05", "opp": "John Dodson", "opp_rank": "#1 FLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2012-03-30", "opp": "Josh Rave", "opp_rank": "#12 FLW", "result": "W", "round": "1", "method": "Technical Submission (Brabo Choke)"}, {"date": "2011-12-16", "opp": "Jens Pulver", "opp_rank": "#103 FW", "result": "W", "round": "2", "method": "KO (Knee)"}, {"date": "2011-05-21", "opp": "Kashiff Solarin", "opp_rank": null, "result": "W", "round": "1", "method": "Submission"}, {"date": "2011-02-26", "opp": "John McDowell", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2010-10-22", "opp": "Victor Dominguez", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2010-06-25", "opp": "Cody Fuller", "opp_rank": "#153 BW", "result": "W", "round": "3", "method": "Submission"}, {"date": "2010-04-02", "opp": "Michael Casteel", "opp_rank": null, "result": "W", "round": "1", "method": "Submission"}, {"date": "2009-12-11", "opp": "Victor Veloquio", "opp_rank": null, "result": "W", "round": "1", "method": "KO"}, {"date": "2009-08-28", "opp": "Jacky Brandon Bryant", "opp_rank": null, "result": "L", "round": "1", "method": "TKO"}, {"date": "2009-06-27", "opp": "Shane Howell", "opp_rank": null, "result": "L", "round": "3", "method": "Submission"}, {"date": "2009-05-08", "opp": "Jerod Spoon", "opp_rank": null, "result": "D", "round": "3", "method": "Draw"}], "ratings": {"measurables": {"height_in": 67.0, "reach_in": 66.0, "weight_lbs": 125, "stance": "Southpaw", "age": 38}}}, "dk_markets": null, "model_fav": 77.7, "pick": null, "watch": "ESPN+ PPV", "fight_time": "10:00 PM ET"}, {"weight": 185, "fav": {"id": 236104, "name": "Baisangur Susurkaev", "url_name": "", "division_abbr": "MW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -900, "best": -900, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": -900}, "fm_odds": null, "records": {"all": {"tot": [9, 0, 0], "ko": [7, 0, 0], "sub": [1, 0, 0], "dec": [1, 0, 0], "ud": [1, 0, 0], "sd": [0, 0, 0]}, "ufc": {"tot": [0, 0, 0], "ko": [0, 0, 0], "sub": [0, 0, 0], "dec": [0, 0, 0], "ud": [0, 0, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [3, 0, 0], "ko": [2, 0, 0], "sub": [0, 0, 0], "dec": [1, 0, 0], "ud": [1, 0, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2025-08-12", "opp": "Murtaza Talha Ali", "opp_rank": "#373 MW", "result": "W", "round": "1", "method": "KO (Front Kick to the Body)"}, {"date": "2025-02-21", "opp": "Irakli Kuchukhidze", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2024-11-22", "opp": "Shane Sobnosky", "opp_rank": "#290 MW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-03-31", "opp": "Artem Kuzmin", "opp_rank": "#430 MW", "result": "W", "round": "1", "method": "TKO (Submission to Punches)"}, {"date": "2021-12-25", "opp": "Bekhruz Kurbonov", "opp_rank": "#456 MW", "result": "W", "round": "1", "method": "KO (Knee)"}, {"date": "2021-08-16", "opp": "Islom Sharopov", "opp_rank": "#504 MW", "result": "W", "round": "1", "method": "KO (Knee)"}, {"date": "2021-01-30", "opp": "Akmatbek Paizilabek Uulu", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Knee and Punches)"}, {"date": "2020-12-19", "opp": "Gennadiy Khamzin", "opp_rank": null, "result": "W", "round": "1", "method": "TKO"}, {"date": "2019-12-22", "opp": "Bakbergen Anvarov", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}], "ratings": {"measurables": {"height_in": 74.0, "reach_in": 79.0, "weight_lbs": 185, "stance": "Orthodox", "age": 24}}}, "dog": {"id": 219614, "name": "Eric Nolan", "url_name": "", "division_abbr": "MW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 600, "best": 600, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": 600}, "fm_odds": null, "records": {"all": {"tot": [8, 3, 0], "ko": [4, 0, 0], "sub": [2, 1, 0], "dec": [2, 2, 0], "ud": [2, 0, 0], "sd": [0, 2, 0]}, "ufc": {"tot": [0, 0, 0], "ko": [0, 0, 0], "sub": [0, 0, 0], "dec": [0, 0, 0], "ud": [0, 0, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [7, 2, 0], "ko": [4, 0, 0], "sub": [2, 1, 0], "dec": [1, 1, 0], "ud": [1, 0, 0], "sd": [0, 1, 0]}}, "history": [{"date": "2025-05-24", "opp": "Blayne Richards", "opp_rank": "#307 WW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2024-12-13", "opp": "Trevor Gudde", "opp_rank": "#796 WW", "result": "W", "round": "2", "method": "KO (Punch)"}, {"date": "2024-10-18", "opp": "Aireon Tavarres", "opp_rank": "#330 MW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2024-04-12", "opp": "RMandel Cameron", "opp_rank": "#632 WW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2023-12-15", "opp": "Alonzo Turner", "opp_rank": "#293 WW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2023-06-16", "opp": "Omoyele Gonzalez", "opp_rank": "#640 WW", "result": "W", "round": "2", "method": "Submission (Rear-Naked Choke)"}, {"date": "2023-04-01", "opp": "Blayne Richards", "opp_rank": "#517 WW", "result": "L", "round": "2", "method": "Submission (Rear-Naked Choke)"}, {"date": "2022-12-16", "opp": "Derrick Ageday", "opp_rank": "#717 WW", "result": "W", "round": "2", "method": "KO (Punch)"}, {"date": "2022-08-26", "opp": "Ibrahim Kallie", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear-Naked Choke)"}, {"date": "2022-04-15", "opp": "Ty Cole Miller", "opp_rank": null, "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2021-12-17", "opp": "Shane WhiteEagle", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}], "ratings": {"measurables": {"height_in": 72, "reach_in": 74, "weight_lbs": 170, "stance": "Orthodox", "age": 27}}}, "dk_markets": null, "model_fav": 70.3, "pick": null, "watch": "ESPN", "fight_time": "9:30 PM ET"}, {"weight": 185, "fav": {"id": 126560, "name": "Michal Oleksiejczuk", "url_name": "", "division_abbr": "MW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -218, "best": -210, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": -218}, "fm_odds": null, "records": {"all": {"tot": [20, 9, 1], "ko": [14, 1, 0], "sub": [1, 6, 0], "dec": [5, 2, 0], "ud": [4, 2, 0], "sd": [1, 0, 0]}, "ufc": {"tot": [9, 7, 1], "ko": [7, 0, 0], "sub": [0, 5, 0], "dec": [2, 2, 0], "ud": [1, 2, 0], "sd": [1, 0, 0]}, "l3y": {"tot": [3, 4, 0], "ko": [3, 0, 0], "sub": [0, 3, 0], "dec": [0, 1, 0], "ud": [0, 1, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2025-04-12", "opp": "Sedriques Dumas", "opp_rank": "#83 MW", "result": "W", "round": "1", "method": "TKO (Punches and Elbows)"}, {"date": "2024-08-03", "opp": "Sharabutdin Magomedov", "opp_rank": "#12 MW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-06-01", "opp": "Kevin Holland", "opp_rank": "#32 WW", "result": "L", "round": "1", "method": "Technical Submission (Armbar)"}, {"date": "2024-03-09", "opp": "Michel Pereira", "opp_rank": "#29 WW", "result": "L", "round": "1", "method": "Technical Submission (Rear-Naked Choke)"}, {"date": "2023-08-26", "opp": "Chidi Njokuani", "opp_rank": "#71 MW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2023-04-29", "opp": "Caio Borralho", "opp_rank": "#30 MW", "result": "L", "round": "2", "method": "Submission (Rear-Naked Choke)"}, {"date": "2022-12-17", "opp": "Cody Brundage", "opp_rank": "#115 MW", "result": "W", "round": "1", "method": "KO (Punches)"}, {"date": "2022-08-06", "opp": "Sam Alvey", "opp_rank": "#240 MW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2022-03-05", "opp": "Dustin Jacoby", "opp_rank": "#34 LHW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-10-30", "opp": "Shamil Gamzatov", "opp_rank": "#62 MW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2021-03-27", "opp": "Modestas Bukauskas", "opp_rank": "#63 LHW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2020-02-22", "opp": "Jimmy Crute", "opp_rank": "#43 LHW", "result": "L", "round": "1", "method": "Submission (Kimura)"}, {"date": "2019-09-28", "opp": "Ovince St. Preux", "opp_rank": "#149 LHW", "result": "L", "round": "2", "method": "Submission (Shoulder Choke)"}, {"date": "2019-04-20", "opp": "Gadzhimurad Antigulov", "opp_rank": "#15 LHW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2019-02-23", "opp": "Gian Villante", "opp_rank": "#48 LHW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2017-12-30", "opp": "Khalil Rountree", "opp_rank": "#43 LHW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2017-11-04", "opp": "Ion Cutelaba", "opp_rank": "#28 LHW", "result": "D", "round": null, "method": null}, {"date": "2017-05-12", "opp": "Riccardo Nosiglia", "opp_rank": "#133 LHW", "result": "W", "round": "1", "method": "TKO"}, {"date": "2017-04-01", "opp": "Charles Andrade", "opp_rank": "#175 LHW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2016-11-19", "opp": "Lukasz Klinger", "opp_rank": "#169 LHW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2016-05-20", "opp": "Wojciech Janusz", "opp_rank": "#289 LHW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2016-01-16", "opp": "Lukasz Borowski", "opp_rank": "#277 LHW", "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2015-09-26", "opp": "Michal Dobias", "opp_rank": null, "result": "W", "round": "2", "method": "KO (Punches)"}, {"date": "2015-05-02", "opp": "Tomasz Janiszewski", "opp_rank": "#223 LHW", "result": "W", "round": "2", "method": "TKO (Strikes)"}, {"date": "2015-01-24", "opp": "Seweryn Kirschhiebel", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Corner Stoppage)"}, {"date": "2014-11-21", "opp": "Marcin Wojcik", "opp_rank": null, "result": "L", "round": "1", "method": "TKO (Punches)"}, {"date": "2014-06-20", "opp": "Norbert Piskorski", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Leg Injury)"}, {"date": "2014-05-17", "opp": "Jan Kwiaton", "opp_rank": "#634 MW", "result": "L", "round": "1", "method": "Submission (Triangle Choke)"}, {"date": "2014-02-08", "opp": "Mateusz Gola", "opp_rank": "#726 MW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2014-01-11", "opp": "Rajmund Flejmer", "opp_rank": null, "result": "W", "round": "2", "method": "Decision (Unanimous)"}], "ratings": {"measurables": {"height_in": 75.0, "reach_in": 80.0, "weight_lbs": 205, "stance": "Southpaw", "age": 30}}}, "dog": {"id": 42292, "name": "Gerald Meerschaert", "url_name": "", "division_abbr": "MW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 180, "best": 180, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": 180}, "fm_odds": null, "records": {"all": {"tot": [37, 19, 0], "ko": [6, 4, 0], "sub": [29, 9, 0], "dec": [2, 6, 0], "ud": [2, 3, 0], "sd": [0, 3, 0]}, "ufc": {"tot": [12, 11, 0], "ko": [1, 4, 0], "sub": [11, 2, 0], "dec": [0, 5, 0], "ud": [0, 2, 0], "sd": [0, 3, 0]}, "l3y": {"tot": [2, 4, 0], "ko": [0, 1, 0], "sub": [2, 1, 0], "dec": [0, 2, 0], "ud": [0, 1, 0], "sd": [0, 1, 0]}}, "history": [{"date": "2025-04-05", "opp": "Brad Tavares", "opp_rank": "#168 MW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-11-09", "opp": "Reinier de Ridder", "opp_rank": "#25 LHW", "result": "L", "round": "3", "method": "Submission (Arm-Triangle Choke)"}, {"date": "2024-08-24", "opp": "Edmen Shahbazyan", "opp_rank": "#62 MW", "result": "W", "round": "2", "method": "Submission (Arm-Triangle Choke)"}, {"date": "2024-03-16", "opp": "Bryan Barberena", "opp_rank": "#266 WW", "result": "W", "round": "2", "method": "Technical Submission (Face Crank)"}, {"date": "2023-08-19", "opp": "Andre Petroski", "opp_rank": "#115 MW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2023-04-08", "opp": "Joe Pyfer", "opp_rank": "#89 MW", "result": "L", "round": "1", "method": "TKO (Punches)"}, {"date": "2022-08-13", "opp": "Bruno Silva", "opp_rank": "#27 MW", "result": "W", "round": "3", "method": "Submission (Guillotine Choke)"}, {"date": "2022-04-30", "opp": "Krzysztof Jotko", "opp_rank": "#55 MW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-12-18", "opp": "Dustin Stoltzfus", "opp_rank": "#176 MW", "result": "W", "round": "3", "method": "Submission (Rear Naked Choke)"}, {"date": "2021-08-28", "opp": "Makhmud Muradov", "opp_rank": "#27 MW", "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2021-04-17", "opp": "Bartosz Fabinski", "opp_rank": "#111 MW", "result": "W", "round": "1", "method": "Technical Submission (Guillotine Choke)"}, {"date": "2020-09-19", "opp": "Khamzat Chimaev", "opp_rank": "#39 WW", "result": "L", "round": "1", "method": "KO (Punch)"}, {"date": "2020-06-06", "opp": "Ian Heinisch", "opp_rank": "#67 MW", "result": "L", "round": "1", "method": "TKO (Punches)"}, {"date": "2020-03-07", "opp": "Deron Winn", "opp_rank": "#164 MW", "result": "W", "round": "3", "method": "Submission (Rear Naked Choke)"}, {"date": "2019-10-12", "opp": "Eryk Anders", "opp_rank": "#43 LHW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2019-08-03", "opp": "Trevin Giles", "opp_rank": "#76 MW", "result": "W", "round": "3", "method": "Technical Submission (Guillotine Choke)"}, {"date": "2019-03-30", "opp": "Kevin Holland", "opp_rank": "#51 MW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2018-12-15", "opp": "Jack Hermansson", "opp_rank": "#20 MW", "result": "L", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2018-07-06", "opp": "Oskar Piechota", "opp_rank": "#27 MW", "result": "W", "round": "2", "method": "Technical Submission (Rear Naked Choke)"}, {"date": "2017-12-01", "opp": "Eric Spicely", "opp_rank": "#83 MW", "result": "W", "round": "2", "method": "KO (Kick to the Body)"}, {"date": "2017-07-08", "opp": "Thiago Santos", "opp_rank": "#45 MW", "result": "L", "round": "2", "method": "TKO (Punches)"}, {"date": "2017-02-19", "opp": "Ryan Janes", "opp_rank": "#36 MW", "result": "W", "round": "1", "method": "Submission (Armbar)"}, {"date": "2016-12-09", "opp": "Joe Gigliotti", "opp_rank": "#170 MW", "result": "W", "round": "1", "method": "Submission (Anaconda Choke)"}, {"date": "2016-10-28", "opp": "Chase Waldon", "opp_rank": "#90 MW", "result": "W", "round": "1", "method": "Submission (Arm Triangle Choke)"}, {"date": "2016-08-13", "opp": "Sidney Wheeler", "opp_rank": "#156 MW", "result": "W", "round": "1", "method": "Submission (Kimura)"}, {"date": "2015-07-18", "opp": "Lucas Rota", "opp_rank": "#321 MW", "result": "W", "round": "3", "method": "TKO (Doctor Stoppage)"}, {"date": "2015-06-27", "opp": "Keith Smetana", "opp_rank": "#240 MW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2014-09-27", "opp": "Matt Lagou", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Arm Triangle Choke)"}, {"date": "2014-05-31", "opp": "Sam Alvey", "opp_rank": "#28 MW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2014-01-31", "opp": "Eddie Larrea", "opp_rank": "#360 MW", "result": "W", "round": "2", "method": "Submission (Arm Triangle Choke)"}, {"date": "2013-09-13", "opp": "Nathan Gunn", "opp_rank": "#327 WW", "result": "W", "round": "2", "method": "Submission (Guillotine Choke)"}, {"date": "2013-07-19", "opp": "George Lockhart", "opp_rank": "#203 MW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2013-04-20", "opp": "Jay Ellis", "opp_rank": "#696 LW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2013-01-19", "opp": "Anthony Lapsley", "opp_rank": "#126 MW", "result": "L", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2012-10-19", "opp": "Sergej Juskevic", "opp_rank": "#358 WW", "result": "L", "round": "1", "method": "Submission (Kneebar)"}, {"date": "2012-09-06", "opp": "Eddie Larrea", "opp_rank": "#509 MW", "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2011-04-22", "opp": "Herbert Goodman", "opp_rank": "#186 MW", "result": "L", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2011-01-06", "opp": "Dallas OMalley", "opp_rank": "#214 HW", "result": "W", "round": "2", "method": "Submission (Guillotine Choke)"}, {"date": "2010-09-11", "opp": "Sam Alvey", "opp_rank": "#77 MW", "result": "W", "round": "5", "method": "Submission (Guillotine Choke)"}, {"date": "2010-07-10", "opp": "Ron Faircloth", "opp_rank": "#197 MW", "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2010-04-17", "opp": "Jim Klimczyk", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2010-03-20", "opp": "Eddie Larrea", "opp_rank": "#520 WW", "result": "W", "round": "2", "method": "Submission (Arm Triangle Choke)"}, {"date": "2009-11-28", "opp": "Morrison Lamb", "opp_rank": "#522 WW", "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2009-08-15", "opp": "Jacob Kuester", "opp_rank": "#509 WW", "result": "W", "round": "1", "method": "Submission (Neck Crank)"}, {"date": "2009-05-02", "opp": "Kenny Robertson", "opp_rank": "#129 WW", "result": "L", "round": "1", "method": "Submission (Kneebar)"}, {"date": "2008-10-10", "opp": "Curtis Bailey", "opp_rank": null, "result": "L", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2008-07-25", "opp": "Mike Vaughn", "opp_rank": null, "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2008-05-03", "opp": "Ryan Scheeper", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Armbar)"}, {"date": "2008-03-29", "opp": "Alex Carter", "opp_rank": "#377 WW", "result": "W", "round": "2", "method": "Submission (Triangle Choke)"}, {"date": "2008-02-23", "opp": "Caleb Krull", "opp_rank": "#388 WW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2008-01-12", "opp": "Kenneth Allen", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Triangle Choke)"}, {"date": "2007-08-11", "opp": "Daisuke Hanazawa", "opp_rank": "#173 WW", "result": "L", "round": "1", "method": "Submission (Kimura)"}, {"date": "2007-05-19", "opp": "Will Pace", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2007-05-12", "opp": "Shane Kruchten", "opp_rank": null, "result": "W", "round": "2", "method": "TKO"}, {"date": "2007-03-10", "opp": "Jay Ellis", "opp_rank": null, "result": "L", "round": "1", "method": "Technical Submission (Choke)"}, {"date": "2007-01-13", "opp": "Fernando Gomez", "opp_rank": null, "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}], "ratings": {"measurables": {"height_in": 73.0, "reach_in": 77.0, "weight_lbs": 185, "stance": "Southpaw", "age": 37}}}, "dk_markets": null, "model_fav": 66.2, "pick": null, "watch": "ESPN", "fight_time": "9:00 PM ET"}, {"weight": 115, "fav": {"id": 170493, "name": "Lupita Godinez", "url_name": "", "division_abbr": "WSW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -142, "best": -142, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": -142}, "fm_odds": null, "records": {"all": {"tot": [13, 5, 2], "ko": [0, 0, 0], "sub": [2, 0, 0], "dec": [10, 5, 0], "ud": [7, 4, 0], "sd": [3, 1, 0]}, "ufc": {"tot": [8, 5, 2], "ko": [0, 0, 0], "sub": [2, 0, 0], "dec": [6, 5, 0], "ud": [4, 4, 0], "sd": [2, 1, 0]}, "l3y": {"tot": [5, 2, 0], "ko": [0, 0, 0], "sub": [1, 0, 0], "dec": [4, 2, 0], "ud": [2, 2, 0], "sd": [2, 0, 0]}}, "history": [{"date": "2025-03-29", "opp": "Julia Polastri", "opp_rank": "#32 WSW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-08-03", "opp": "Mackenzie Dern", "opp_rank": "#32 WSW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-03-30", "opp": "Virna Jandiroba", "opp_rank": "#23 WSW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2023-11-11", "opp": "Tabatha Ricci", "opp_rank": "#21 WSW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2023-09-16", "opp": "Elise Reed", "opp_rank": "#105 WSW", "result": "W", "round": "2", "method": "Submission (Rear-Naked Choke)"}, {"date": "2023-05-20", "opp": "Emily Ducote", "opp_rank": "#46 WSW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2023-04-08", "opp": "Cynthia Calvillo", "opp_rank": "#57 WFLW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2022-08-13", "opp": "Angela Hill", "opp_rank": "#81 WSW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-05-07", "opp": "Ariane Carnelossi", "opp_rank": "#9 WSW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-04-30", "opp": "Ariane Carnelossi", "opp_rank": "#11 WSW", "result": "D", "round": null, "method": null}, {"date": "2021-11-20", "opp": "Konklak Suphisara", "opp_rank": "#39 WSW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-10-16", "opp": "Luana Carolina", "opp_rank": "#43 WFLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-10-09", "opp": "Silvana Gomez Juarez", "opp_rank": "#26 WSW", "result": "W", "round": "1", "method": "Submission (Armbar)"}, {"date": "2021-10-09", "opp": "Sam Hughes", "opp_rank": "#107 WSW", "result": "D", "round": null, "method": null}, {"date": "2021-04-17", "opp": "Jessica Penne", "opp_rank": "#85 WSW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2020-10-30", "opp": "Vanessa Demopoulos", "opp_rank": "#46 WSW", "result": "W", "round": "5", "method": "Decision (Majority)"}, {"date": "2019-11-30", "opp": "Lindsay Garbatt", "opp_rank": "#115 WSW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-08-23", "opp": "Felisha Magallan", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-05-18", "opp": "Ashlee Mastin", "opp_rank": null, "result": "W", "round": "1", "method": "SUB"}, {"date": "2018-06-30", "opp": "Jennah Macallister", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}], "ratings": {"measurables": {"age": 31}}}, "dog": {"id": 96004, "name": "Jessica Andrade", "url_name": "", "division_abbr": "WSW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 120, "best": 120, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": 120}, "fm_odds": null, "records": {"all": {"tot": [26, 14, 1], "ko": [10, 5, 0], "sub": [7, 5, 0], "dec": [8, 4, 0], "ud": [6, 3, 0], "sd": [2, 1, 0]}, "ufc": {"tot": [17, 12, 0], "ko": [6, 4, 0], "sub": [2, 5, 0], "dec": [8, 3, 0], "ud": [6, 2, 0], "sd": [2, 1, 0]}, "l3y": {"tot": [3, 5, 0], "ko": [1, 1, 0], "sub": [0, 3, 0], "dec": [2, 1, 0], "ud": [1, 1, 0], "sd": [1, 0, 0]}}, "history": [{"date": "2025-05-10", "opp": "Jasmine Jasudavicius", "opp_rank": "#14 WFLW", "result": "L", "round": "1", "method": "Submission (Rear-Naked Choke)"}, {"date": "2024-09-07", "opp": "Natalia Silva", "opp_rank": "#5 WFLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-04-13", "opp": "Marina Rodriguez", "opp_rank": "#5 WSW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2023-11-11", "opp": "Mackenzie Dern", "opp_rank": "#19 WSW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2023-08-05", "opp": "Tatiana Suarez", "opp_rank": "#2 WSW", "result": "L", "round": "2", "method": "Submission (Guillotine Choke)"}, {"date": "2023-05-06", "opp": "Xiaonan Yan", "opp_rank": "#16 WSW", "result": "L", "round": "1", "method": "KO (Punches)"}, {"date": "2023-02-18", "opp": "Erin Blanchfield", "opp_rank": "#5 WFLW", "result": "L", "round": "2", "method": "Submission (Rear-Naked Choke)"}, {"date": "2023-01-21", "opp": "Lauren Murphy", "opp_rank": "#40 WFLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-04-23", "opp": "Amanda Lemos", "opp_rank": "#6 WSW", "result": "W", "round": "1", "method": "Submission (Arm-Triangle Choke)"}, {"date": "2021-09-25", "opp": "Cynthia Calvillo", "opp_rank": "#11 WFLW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2021-04-24", "opp": "Valentina Shevchenko", "opp_rank": "#1 WFLW", "result": "L", "round": "2", "method": "TKO (Elbows)"}, {"date": "2020-10-17", "opp": "Katlyn Cerminara", "opp_rank": "#3 WFLW", "result": "W", "round": "1", "method": "KO (Punches to the Body)"}, {"date": "2020-07-11", "opp": "Rose Namajunas", "opp_rank": "#7 WSW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2019-08-31", "opp": "Weili Zhang", "opp_rank": "#1 WSW", "result": "L", "round": "1", "method": "TKO (Knees and Punches)"}, {"date": "2019-05-11", "opp": "Rose Namajunas", "opp_rank": "#10 WSW", "result": "W", "round": "2", "method": "KO (Slam)"}, {"date": "2018-09-08", "opp": "Karolina Kowalkiewicz", "opp_rank": "#13 WSW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2018-02-24", "opp": "Tecia Pennington", "opp_rank": "#9 WSW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2017-09-23", "opp": "Claudia Gadelha", "opp_rank": "#2 WSW", "result": "D", "round": null, "method": null}, {"date": "2017-09-22", "opp": "Claudia Gadelha", "opp_rank": "#2 WSW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2017-05-13", "opp": "Joanna Jedrzejczyk", "opp_rank": "#1 WSW", "result": "L", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2017-02-04", "opp": "Angela Hill", "opp_rank": "#30 WSW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2016-09-10", "opp": "Joanne Wood", "opp_rank": "#10 WSW", "result": "W", "round": "1", "method": "SUB"}, {"date": "2016-06-04", "opp": "Jessica Penne", "opp_rank": "#14 WSW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2015-09-05", "opp": "Raquel Pennington", "opp_rank": "#30 WBW", "result": "L", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2015-07-15", "opp": "Sarah Moras", "opp_rank": "#3 WFW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2015-02-22", "opp": "Marion Reneau", "opp_rank": "#38 WBW", "result": "L", "round": "1", "method": "Submission (Triangle Choke)"}, {"date": "2014-09-13", "opp": "Larissa Pacheco", "opp_rank": "#17 WBW", "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2014-03-15", "opp": "Raquel Pennington", "opp_rank": "#18 WBW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2013-10-26", "opp": "Rosi Sexton", "opp_rank": "#6 WFLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2013-07-27", "opp": "Liz Carmouche", "opp_rank": "#9 WBW", "result": "L", "round": "2", "method": "TKO (Punches and Elbows)"}, {"date": "2013-04-14", "opp": "Milana Dudieva", "opp_rank": "#5 WFW", "result": "W", "round": "2", "method": "Submission (Guillotine Choke)"}, {"date": "2013-01-27", "opp": "Luciana dos Passos Pereira", "opp_rank": null, "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2012-12-15", "opp": "Jennifer Maia", "opp_rank": "#25 WFLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2012-10-13", "opp": "Vanessa Silva", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2012-09-15", "opp": "Alessandra Silva", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2012-09-08", "opp": "Duda Yankovich", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2012-08-28", "opp": "Juliana Silva", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2012-05-20", "opp": "Lilian Correia", "opp_rank": null, "result": "W", "round": "2", "method": "KO (Punch to the Body)"}, {"date": "2012-05-05", "opp": "Kinberly Tanaka Novaes", "opp_rank": null, "result": "L", "round": "2", "method": "TKO (Punches and Knees)"}, {"date": "2011-11-19", "opp": "Bruna Fernandes", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2011-09-06", "opp": "Weidy Borges", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Punches)"}], "ratings": {"measurables": {"height_in": 61.0, "reach_in": 62.0, "weight_lbs": 115, "stance": "Orthodox", "age": 33}}}, "dk_markets": null, "model_fav": 52.3, "pick": null, "watch": "ESPN", "fight_time": "8:30 PM ET"}, {"weight": 155, "fav": {"id": 172208, "name": "Chase Hooper", "url_name": "", "division_abbr": "LW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -360, "best": -333, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": -360}, "fm_odds": null, "records": {"all": {"tot": [16, 3, 1], "ko": [4, 1, 0], "sub": [7, 0, 0], "dec": [4, 2, 0], "ud": [4, 2, 0], "sd": [0, 0, 0]}, "ufc": {"tot": [8, 3, 0], "ko": [2, 1, 0], "sub": [4, 0, 0], "dec": [2, 2, 0], "ud": [2, 2, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [5, 1, 0], "ko": [0, 1, 0], "sub": [3, 0, 0], "dec": [2, 0, 0], "ud": [2, 0, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2025-04-12", "opp": "Jim Miller", "opp_rank": "#153 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-12-07", "opp": "Clay Guida", "opp_rank": "#502 LW", "result": "W", "round": "1", "method": "Submission (Armbar)"}, {"date": "2024-05-11", "opp": "Viacheslav Borshchev", "opp_rank": "#140 LW", "result": "W", "round": "2", "method": "Submission (Brabo Choke)"}, {"date": "2023-11-18", "opp": "Jordan Leavitt", "opp_rank": "#69 LW", "result": "W", "round": "1", "method": "Submission (Rear-Naked Choke)"}, {"date": "2023-05-20", "opp": "Nick Fiore", "opp_rank": "#241 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-10-29", "opp": "Steve Garcia", "opp_rank": "#219 LW", "result": "L", "round": "1", "method": "TKO (Punches)"}, {"date": "2022-05-21", "opp": "Felipe Colares", "opp_rank": "#201 FW", "result": "W", "round": "3", "method": "TKO (Punches)"}, {"date": "2021-06-12", "opp": "Steven Peterson", "opp_rank": "#242 FW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2020-12-12", "opp": "Peter Barrett", "opp_rank": "#576 LW", "result": "W", "round": "3", "method": "Submission (Heel Hook)"}, {"date": "2020-06-06", "opp": "Alex Caceres", "opp_rank": "#208 FW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-12-14", "opp": "Daniel Teymur", "opp_rank": "#344 FW", "result": "W", "round": "1", "method": "TKO (Elbows and Punches)"}, {"date": "2019-06-28", "opp": "Luis Gomez", "opp_rank": "#273 FW", "result": "W", "round": "1", "method": "SUB"}, {"date": "2019-03-22", "opp": "Sky Moiseichik", "opp_rank": "#524 BW", "result": "W", "round": "2", "method": "TKO"}, {"date": "2018-12-14", "opp": "Lashawn Alcocks", "opp_rank": "#736 LW", "result": "D", "round": "3", "method": "Draw"}, {"date": "2018-07-24", "opp": "Canaan Kawaihae", "opp_rank": "#608 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-04-21", "opp": "Brett Malone", "opp_rank": "#506 LW", "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2018-02-24", "opp": "Drew Brokenshire", "opp_rank": "#252 FW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2018-02-10", "opp": "Wyatt Gonzalez", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Triangle Choke)"}, {"date": "2017-12-16", "opp": "Sean Soliz", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2017-10-07", "opp": "Edson Penado", "opp_rank": null, "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}], "ratings": {"measurables": {"height_in": 73.0, "reach_in": 74.0, "weight_lbs": 155, "stance": "Southpaw", "age": 25}}}, "dog": {"id": 94544, "name": "Alexander Hernandez", "url_name": "", "division_abbr": "LW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 285, "best": 310, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": 285}, "fm_odds": null, "records": {"all": {"tot": [16, 8, 1], "ko": [6, 3, 0], "sub": [2, 1, 0], "dec": [8, 4, 0], "ud": [7, 2, 0], "sd": [1, 2, 0]}, "ufc": {"tot": [8, 7, 1], "ko": [3, 3, 0], "sub": [0, 1, 0], "dec": [5, 3, 0], "ud": [4, 2, 0], "sd": [1, 1, 0]}, "l3y": {"tot": [3, 3, 0], "ko": [0, 1, 0], "sub": [0, 0, 0], "dec": [3, 2, 0], "ud": [2, 1, 0], "sd": [1, 1, 0]}}, "history": [{"date": "2025-03-15", "opp": "Kurt Holobaugh", "opp_rank": "#246 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-10-05", "opp": "Austin Hubbard", "opp_rank": "#133 LW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2024-04-06", "opp": "Damon Jackson", "opp_rank": "#100 FW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2023-10-07", "opp": "Bill Algeo", "opp_rank": "#130 FW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2023-02-18", "opp": "Jim Miller", "opp_rank": "#200 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-12-10", "opp": "Billy Quarantillo", "opp_rank": "#156 FW", "result": "L", "round": "2", "method": "TKO (Knees and Punches)"}, {"date": "2022-02-12", "opp": "Renato Carneiro", "opp_rank": "#69 LW", "result": "L", "round": "2", "method": "Submission (Rear-Naked Choke)"}, {"date": "2021-10-02", "opp": "Mike Breeden", "opp_rank": "#192 LW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2021-02-27", "opp": "Thiago Moises", "opp_rank": "#34 LW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2020-10-31", "opp": "Chris Gruetzemacher", "opp_rank": "#347 LW", "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2020-05-13", "opp": "Drew Dober", "opp_rank": "#78 LW", "result": "L", "round": "2", "method": "TKO (Punches)"}, {"date": "2020-05-09", "opp": "Drew Dober", "opp_rank": "#78 LW", "result": "D", "round": null, "method": null}, {"date": "2019-07-20", "opp": "Francisco Trinaldo", "opp_rank": "#39 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-01-19", "opp": "Donald Cerrone", "opp_rank": "#33 WW", "result": "L", "round": "2", "method": "TKO (Head Kick and Punches)"}, {"date": "2018-07-28", "opp": "Olivier Aubin-Mercier", "opp_rank": "#15 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-03-03", "opp": "Beneil Dariush", "opp_rank": "#34 LW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2017-11-10", "opp": "Derrick Adkins", "opp_rank": "#380 LW", "result": "W", "round": "3", "method": "TKO (Punches)"}, {"date": "2016-07-29", "opp": "Chris Pecero", "opp_rank": "#387 LW", "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2015-09-26", "opp": "Rodrigo Sotelo", "opp_rank": null, "result": "W", "round": "1", "method": "Submission"}, {"date": "2015-01-17", "opp": "Jacob Capelli", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2014-09-12", "opp": "Martin Walker", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2013-09-28", "opp": "Joel Scott", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2013-06-21", "opp": "Jamall Emmers", "opp_rank": null, "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2013-03-16", "opp": "David Salazar", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2012-10-20", "opp": "Dimitre Ivy", "opp_rank": "#563 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}], "ratings": {"measurables": {"height_in": 69.0, "reach_in": 72.0, "weight_lbs": 155, "stance": "Orthodox", "age": 32}}}, "dk_markets": null, "model_fav": 82.1, "pick": null, "watch": "ESPN", "fight_time": "8:00 PM ET"}, {"weight": 155, "fav": {"id": 86732, "name": "Drakkar Klose", "url_name": "", "division_abbr": "LW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -135, "best": -103, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": -135, "FanDuel": -104, "BetMGM": -105, "Caesars": -105}, "fm_odds": null, "records": {"all": {"tot": [15, 3, 3], "ko": [6, 2, 0], "sub": [0, 0, 0], "dec": [9, 1, 0], "ud": [8, 1, 0], "sd": [1, 0, 0]}, "ufc": {"tot": [9, 3, 0], "ko": [2, 2, 0], "sub": [0, 0, 0], "dec": [7, 1, 0], "ud": [6, 1, 0], "sd": [1, 0, 0]}, "l3y": {"tot": [2, 1, 0], "ko": [1, 1, 0], "sub": [0, 0, 0], "dec": [1, 0, 0], "ud": [1, 0, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2024-12-14", "opp": "Joel Alvarez", "opp_rank": "#25 LW", "result": "L", "round": "1", "method": "KO (Flying Knee and Punches)"}, {"date": "2024-05-04", "opp": "Joaquim Silva", "opp_rank": "#137 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2023-12-02", "opp": "Joe Solecki", "opp_rank": "#163 LW", "result": "W", "round": "1", "method": "KO (Slam)"}, {"date": "2022-07-30", "opp": "Rafa Garcia", "opp_rank": "#131 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-04-16", "opp": "Brandon Jenkins", "opp_rank": "#293 LW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2020-03-07", "opp": "Beneil Dariush", "opp_rank": "#40 LW", "result": "L", "round": "2", "method": "KO (Punch)"}, {"date": "2019-08-17", "opp": "Christos Giagos", "opp_rank": "#182 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-12-15", "opp": "King Green", "opp_rank": "#70 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-07-07", "opp": "Lando Vannata", "opp_rank": "#62 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2017-12-02", "opp": "David Teymur", "opp_rank": "#137 LW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2017-07-07", "opp": "Marc Diakiese", "opp_rank": "#21 LW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2017-07-07", "opp": "Marc Diakiese", "opp_rank": "#21 LW", "result": "D", "round": null, "method": null}, {"date": "2017-01-15", "opp": "Devin Powell", "opp_rank": "#275 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2017-01-14", "opp": "Devin Powell", "opp_rank": "#275 LW", "result": "D", "round": null, "method": null}, {"date": "2016-09-30", "opp": "Hugh Pulley", "opp_rank": "#340 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2016-02-18", "opp": "Joshua Aveles", "opp_rank": "#154 WW", "result": "D", "round": "3", "method": "Draw"}, {"date": "2015-08-22", "opp": "Alejandro Garcia", "opp_rank": "#252 FW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2015-06-06", "opp": "Gabe Rodriguez", "opp_rank": null, "result": "W", "round": "1", "method": "TKO"}, {"date": "2015-03-07", "opp": "Preston Harris", "opp_rank": "#1010 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2014-11-22", "opp": "Jeff Fletcher", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2014-04-05", "opp": "Nolan McLaughlin", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}], "ratings": {"measurables": {"height_in": 69.0, "reach_in": 70.0, "weight_lbs": 155, "stance": "Orthodox", "age": 37}}}, "dog": {"id": 49254, "name": "Edson Barboza", "url_name": "", "division_abbr": "LW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 114, "best": 114, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": 114, "FanDuel": -112, "BetMGM": -115, "Caesars": -115}, "fm_odds": null, "records": {"all": {"tot": [24, 12, 1], "ko": [13, 4, 0], "sub": [2, 2, 0], "dec": [9, 6, 0], "ud": [7, 4, 0], "sd": [2, 2, 0]}, "ufc": {"tot": [18, 12, 1], "ko": [8, 4, 0], "sub": [1, 2, 0], "dec": [9, 6, 0], "ud": [7, 4, 0], "sd": [2, 2, 0]}, "l3y": {"tot": [2, 1, 0], "ko": [1, 0, 0], "sub": [0, 0, 0], "dec": [1, 1, 0], "ud": [1, 1, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2024-05-18", "opp": "Lerone Murphy", "opp_rank": "#22 FW", "result": "L", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2023-10-14", "opp": "Sodiq Yusuff", "opp_rank": "#50 FW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2023-04-15", "opp": "Billy Quarantillo", "opp_rank": "#84 FW", "result": "W", "round": "1", "method": "KO (Knee)"}, {"date": "2022-03-05", "opp": "Bryce Mitchell", "opp_rank": "#26 FW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-08-28", "opp": "Giga Chikadze", "opp_rank": "#101 FW", "result": "L", "round": "3", "method": "TKO (Punches)"}, {"date": "2021-05-15", "opp": "Shane Burgos", "opp_rank": "#32 FW", "result": "W", "round": "3", "method": "KO (Punches)"}, {"date": "2020-10-10", "opp": "Makwan Amirkhani", "opp_rank": "#73 FW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2020-05-16", "opp": "Dan Ige", "opp_rank": "#21 FW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2019-09-07", "opp": "Paul Felder", "opp_rank": "#49 LW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2019-03-30", "opp": "Justin Gaethje", "opp_rank": "#24 LW", "result": "L", "round": "1", "method": "KO (Punch)"}, {"date": "2018-12-15", "opp": "Dan Hooker", "opp_rank": "#29 LW", "result": "W", "round": "3", "method": "KO (Punch to the Body)"}, {"date": "2018-04-21", "opp": "Kevin Lee", "opp_rank": "#6 LW", "result": "L", "round": "5", "method": "TKO (Doctor Stoppage)"}, {"date": "2017-12-30", "opp": "Khabib Nurmagomedov", "opp_rank": "#1 LW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2017-03-11", "opp": "Beneil Dariush", "opp_rank": "#32 LW", "result": "W", "round": "2", "method": "TKO"}, {"date": "2016-07-23", "opp": "Gilbert Melendez", "opp_rank": "#23 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2016-04-23", "opp": "Anthony Pettis", "opp_rank": "#11 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2015-12-11", "opp": "Tony Ferguson", "opp_rank": "#16 LW", "result": "L", "round": "2", "method": "Submission (Brabo Choke)"}, {"date": "2015-07-25", "opp": "Paul Felder", "opp_rank": "#56 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2015-02-22", "opp": "Michael Johnson", "opp_rank": "#45 LW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2014-11-22", "opp": "King Green", "opp_rank": "#15 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2014-07-19", "opp": "Evan Dunham", "opp_rank": "#38 LW", "result": "D", "round": null, "method": null}, {"date": "2014-07-16", "opp": "Evan Dunham", "opp_rank": "#38 LW", "result": "W", "round": "1", "method": "TKO (Kick to the Body and Punches)"}, {"date": "2014-04-19", "opp": "Donald Cerrone", "opp_rank": "#7 LW", "result": "L", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2013-12-14", "opp": "Danny Castillo", "opp_rank": "#46 LW", "result": "W", "round": "3", "method": "Decision (Majority)"}, {"date": "2013-07-06", "opp": "Rafaello Oliveira", "opp_rank": "#111 LW", "result": "W", "round": "2", "method": "TKO (Leg Kicks)"}, {"date": "2013-01-19", "opp": "Lucas Martins", "opp_rank": "#168 LW", "result": "W", "round": "1", "method": "Submission (Punches)"}, {"date": "2012-05-26", "opp": "Jamie Varner", "opp_rank": "#32 LW", "result": "L", "round": "1", "method": "TKO (Punches)"}, {"date": "2012-01-14", "opp": "Terry Etim", "opp_rank": "#64 LW", "result": "W", "round": "3", "method": "KO (Spinning Wheel Kick)"}, {"date": "2011-08-27", "opp": "Ross Pearson", "opp_rank": "#56 LW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2011-03-19", "opp": "Anthony Njokuani", "opp_rank": "#63 LW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2010-11-20", "opp": "Mike Lullo", "opp_rank": "#335 LW", "result": "W", "round": "3", "method": "TKO (Leg Kicks)"}, {"date": "2010-06-11", "opp": "Marcelo Giudici", "opp_rank": "#402 FW", "result": "W", "round": "1", "method": "TKO (Leg Kicks)"}, {"date": "2010-03-05", "opp": "Jose Figueroa", "opp_rank": "#613 LW", "result": "W", "round": "1", "method": "KO (Punch)"}, {"date": "2010-02-19", "opp": "Nabih Barakat", "opp_rank": "#694 LW", "result": "W", "round": "1", "method": "KO (Punches)"}, {"date": "2009-11-20", "opp": "Lee King", "opp_rank": "#489 WW", "result": "W", "round": "1", "method": "Submission (Anaconda Choke)"}, {"date": "2009-06-13", "opp": "Lee King", "opp_rank": "#567 LW", "result": "W", "round": "2", "method": "KO (Punches)"}, {"date": "2009-04-17", "opp": "Aaron Steadman", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}], "ratings": {"measurables": {"height_in": 71.0, "reach_in": 75.0, "weight_lbs": 155, "stance": "Orthodox", "age": 39}}}, "dk_markets": null, "model_fav": 55.7, "pick": null, "watch": "UFC Fight Pass", "fight_time": "7:20 PM ET"}, {"weight": 125, "fav": {"id": 125246, "name": "Karine Silva", "url_name": "", "division_abbr": "WFLW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -192, "best": -192, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": -192, "FanDuel": -200, "BetMGM": -200, "Caesars": -200}, "fm_odds": null, "records": {"all": {"tot": [18, 5, 1], "ko": [9, 1, 0], "sub": [8, 2, 0], "dec": [1, 2, 0], "ud": [1, 2, 0], "sd": [0, 0, 0]}, "ufc": {"tot": [4, 1, 1], "ko": [0, 0, 0], "sub": [3, 0, 0], "dec": [1, 1, 0], "ud": [1, 1, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [3, 1, 1], "ko": [0, 0, 0], "sub": [2, 0, 0], "dec": [1, 1, 0], "ud": [1, 1, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2024-11-16", "opp": "Viviane Araujo", "opp_rank": "#54 WFLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-04-27", "opp": "Ariane Lipski da Silva", "opp_rank": "#36 WFLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2023-08-19", "opp": "Maryna Moroz", "opp_rank": "#16 WFLW", "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2023-06-03", "opp": "Ketlen Souza", "opp_rank": "#34 WFLW", "result": "W", "round": "1", "method": "Submission (Kneebar)"}, {"date": "2023-04-22", "opp": "Priscila Cachoeira", "opp_rank": "#40 WFLW", "result": "D", "round": null, "method": null}, {"date": "2022-06-04", "opp": "Poliana Botelho", "opp_rank": "#44 WFLW", "result": "W", "round": "1", "method": "Submission (Brabo Choke)"}, {"date": "2021-10-26", "opp": "Qihui Yan", "opp_rank": "#36 WFLW", "result": "W", "round": "2", "method": "Submission (Guillotine Choke)"}, {"date": "2020-10-31", "opp": "Sidy Rocha", "opp_rank": "#35 WBW", "result": "W", "round": "1", "method": "TKO (Arm Injury)"}, {"date": "2020-02-29", "opp": "Simone da Silva", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Heel Hook)"}, {"date": "2019-10-26", "opp": "Geovanna Eduarda", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear-Naked Choke)"}, {"date": "2019-08-18", "opp": "Vitoria Ferreira", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2019-05-04", "opp": "Dione Barbosa", "opp_rank": null, "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2017-12-15", "opp": "Marina Mokhnatkina", "opp_rank": "#51 WBW", "result": "L", "round": "1", "method": "Submission (Kneebar)"}, {"date": "2017-07-01", "opp": "Juliete de Souza Silva", "opp_rank": "#13 WFLW", "result": "W", "round": "2", "method": "Submission (Triangle Choke)"}, {"date": "2015-10-17", "opp": "Bruna Rosso", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Elbows)"}, {"date": "2015-06-06", "opp": "Leticia Oliveira Ribeiro", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Armbar)"}, {"date": "2015-04-04", "opp": "Cynthia Candido", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2014-11-01", "opp": "Maryna Moroz", "opp_rank": "#16 WFLW", "result": "L", "round": "1", "method": "Submission (Armbar)"}, {"date": "2014-06-14", "opp": "Geisyele Nascimento", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2014-05-25", "opp": "Patricia Marques", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2014-05-03", "opp": "Cintia Nunes", "opp_rank": null, "result": "W", "round": "1", "method": "KO (Head Kick)"}, {"date": "2014-03-15", "opp": "Helaine Ribeiro", "opp_rank": null, "result": "W", "round": "1", "method": "KO (Elbows)"}, {"date": "2014-02-22", "opp": "Marta Souza", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2013-06-15", "opp": "Elaine Albuquerque", "opp_rank": null, "result": "L", "round": "3", "method": "KO (Punch)"}], "ratings": {"measurables": {"height_in": 65.0, "reach_in": 67.0, "weight_lbs": 125, "stance": "Orthodox", "age": 31}}}, "dog": {"id": 180873, "name": "Dione Barbosa", "url_name": "", "division_abbr": "WFLW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 160, "best": 180, "best_book": null, "primary_book": "DraftKings", "books": {"DraftKings": 160, "FanDuel": 168, "BetMGM": 165, "Caesars": 170}, "fm_odds": null, "records": {"all": {"tot": [8, 3, 0], "ko": [0, 1, 0], "sub": [4, 0, 0], "dec": [4, 2, 0], "ud": [4, 2, 0], "sd": [0, 0, 0]}, "ufc": {"tot": [2, 1, 0], "ko": [0, 0, 0], "sub": [1, 0, 0], "dec": [1, 1, 0], "ud": [1, 1, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [5, 1, 0], "ko": [0, 0, 0], "sub": [2, 0, 0], "dec": [3, 1, 0], "ud": [3, 1, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2025-04-05", "opp": "Diana Belbita", "opp_rank": "#154 WSW", "result": "W", "round": "1", "method": "Submission (Arm-Triangle Choke)"}, {"date": "2024-07-20", "opp": "Miranda Maverick", "opp_rank": "#15 WFLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2024-05-04", "opp": "Ernesta Kareckaite", "opp_rank": "#58 WFLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2023-09-05", "opp": "Rainn Guerrero", "opp_rank": "#31 WBW", "result": "W", "round": "1", "method": "Submission (Armbar)"}, {"date": "2023-02-10", "opp": "Jessica Middleton", "opp_rank": "#150 WFLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-12-09", "opp": "Mariana Poltronieri Piccolo", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2021-11-12", "opp": "Jena Bishop", "opp_rank": "#122 WFLW", "result": "L", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2019-12-07", "opp": "Josiane Nunes", "opp_rank": "#20 WFW", "result": "L", "round": "2", "method": "TKO (Punches on the Ground)"}, {"date": "2019-05-04", "opp": "Karine Silva", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-07-21", "opp": "Ana Paula da Silva", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2018-07-07", "opp": "Cristmi Niero Pafaro", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Armbar)"}], "ratings": {"measurables": {"height_in": 66.0, "reach_in": 66.0, "weight_lbs": 125, "stance": "Orthodox", "age": 33}}}, "dk_markets": null, "model_fav": 60.5, "pick": null, "watch": "UFC Fight Pass", "fight_time": "6:40 PM ET"}, {"weight": 125, "fav": {"id": 220027, "name": "Alibi Idiris", "url_name": "", "division_abbr": "FLW", "ranks": [null, null, null, null, null, null], "model": null, "dk": -470, "best": -470, "best_book": "DraftKings", "primary_book": "DraftKings", "books": {"DraftKings": -470, "FanDuel": -500, "BetMGM": -500, "Caesars": -500}, "fm_odds": null, "records": {"all": {"tot": [12, 0, 0], "ko": [5, 0, 0], "sub": [2, 0, 0], "dec": [5, 0, 0], "ud": [5, 0, 0], "sd": [0, 0, 0]}, "ufc": {"tot": [0, 0, 0], "ko": [0, 0, 0], "sub": [0, 0, 0], "dec": [0, 0, 0], "ud": [0, 0, 0], "sd": [0, 0, 0]}, "l3y": {"tot": [6, 0, 0], "ko": [3, 0, 0], "sub": [0, 0, 0], "dec": [3, 0, 0], "ud": [3, 0, 0], "sd": [0, 0, 0]}}, "history": [{"date": "2025-03-12", "opp": "Roybert Echeverria", "opp_rank": "#85 FLW", "result": "W", "round": "1", "method": "TKO"}, {"date": "2025-02-26", "opp": "Furkatbek Yokubov", "opp_rank": "#148 FLW", "result": "W", "round": "2", "method": "Decision (Unanimous)"}, {"date": "2024-05-18", "opp": "Edilson Santos Jr.", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2023-12-21", "opp": "Erisson Ferreira", "opp_rank": "#296 FLW", "result": "W", "round": "1", "method": "KO (Spinning Wheel Kick and Punches)"}, {"date": "2023-06-23", "opp": "Alisson Silva", "opp_rank": "#176 FLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2022-08-25", "opp": "Flavio da Silva Santos", "opp_rank": "#117 FLW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2022-04-01", "opp": "Dzhokhar Eskiev", "opp_rank": "#86 FLW", "result": "W", "round": "1", "method": "KO (Knee)"}, {"date": "2021-07-31", "opp": "Aslan Utegaliev", "opp_rank": "#121 FLW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2021-01-29", "opp": "Argen Malikov", "opp_rank": null, "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2020-12-05", "opp": "Teimur Zhaparov", "opp_rank": "#491 FLW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2020-01-31", "opp": "Islam Aibatov", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2019-11-02", "opp": "Medet Zhumamurat", "opp_rank": null, "result": "W", "round": "3", "method": "Submission (Rear Naked Choke)"}], "ratings": {"measurables": {"age": 30}}}, "dog": {"id": 109350, "name": "Joseph Morales", "url_name": "", "division_abbr": "FLW", "ranks": [null, null, null, null, null, null], "model": null, "dk": 360, "best": 385, "best_book": "FanDuel", "primary_book": "DraftKings", "books": {"DraftKings": 360, "FanDuel": 385, "BetMGM": 375, "Caesars": 375}, "fm_odds": null, "records": {"all": {"tot": [14, 2, 0], "ko": [2, 1, 0], "sub": [6, 0, 0], "dec": [5, 1, 0], "ud": [3, 0, 0], "sd": [2, 1, 0]}, "ufc": {"tot": [1, 2, 0], "ko": [0, 1, 0], "sub": [1, 0, 0], "dec": [0, 1, 0], "ud": [0, 0, 0], "sd": [0, 1, 0]}, "l3y": {"tot": [3, 0, 0], "ko": [0, 0, 0], "sub": [1, 0, 0], "dec": [1, 0, 0], "ud": [0, 0, 0], "sd": [1, 0, 0]}}, "history": [{"date": "2025-03-12", "opp": "Imanol Rodriguez", "opp_rank": "#43 FLW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2025-02-19", "opp": "Eduardo Henrique", "opp_rank": "#31 FLW", "result": "W", "round": "1", "method": "SUB"}, {"date": "2023-02-03", "opp": "Anthony Do", "opp_rank": "#216 FLW", "result": "W", "round": "3", "method": "Submission (Triangle Choke)"}, {"date": "2022-03-04", "opp": "Sidemar Honorio", "opp_rank": "#153 FLW", "result": "W", "round": "3", "method": "Decision (Split)"}, {"date": "2021-08-01", "opp": "Kevin Wirth", "opp_rank": "#245 BW", "result": "W", "round": "3", "method": "Decision (Unanimous)"}, {"date": "2018-11-10", "opp": "Eric Shelton", "opp_rank": "#32 FLW", "result": "L", "round": "3", "method": "Decision (Split)"}, {"date": "2018-02-03", "opp": "Deiveson Figueiredo", "opp_rank": "#8 FLW", "result": "L", "round": "2", "method": "TKO (Punches)"}, {"date": "2017-08-05", "opp": "Roberto Sanchez", "opp_rank": "#36 FLW", "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2017-03-25", "opp": "Sean Santella", "opp_rank": "#44 FLW", "result": "W", "round": "2", "method": "TKO (Punches)"}, {"date": "2016-11-19", "opp": "Josh Paiva", "opp_rank": "#69 FLW", "result": "W", "round": "5", "method": "Decision (Unanimous)"}, {"date": "2016-08-27", "opp": "Gerald Bailey", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Rear Naked Choke)"}, {"date": "2016-03-26", "opp": "Sammy Saunders", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Triangle Choke)"}, {"date": "2015-08-29", "opp": "Gerald Bailey", "opp_rank": null, "result": "W", "round": "1", "method": "Submission (Guillotine Choke)"}, {"date": "2015-05-30", "opp": "Benji Gomez", "opp_rank": null, "result": "W", "round": "2", "method": "Submission (Rear Naked Choke)"}, {"date": "2015-02-28", "opp": "Roque Reyes", "opp_rank": null, "result": "W", "round": "1", "method": "TKO (Punches)"}, {"date": "2014-12-13", "opp": "Christian Espinosa", "opp_rank": null, "result": "W", "round": "3", "method": "Decision (Unanimous)"}], "ratings": {"measurables": {"height_in": 66.0, "reach_in": 69.0, "weight_lbs": 125, "stance": "Switch", "age": 30}}}, "dk_markets": null, "model_fav": 74.8, "pick": null, "watch": "UFC Fight Pass", "fight_time": "6:00 PM ET"}], "fighterRanks": {}, "promoRanks": {}}/*__DATA__*/;
+const __CARDS__ = (__PAYLOAD__ && __PAYLOAD__.__cards__) ? __PAYLOAD__.__cards__ : null;
+// DEFAULT-active tab: the card flagged default (UFC), else the first. The tab BAR is
+// ordered by event datetime, so the default view need not be the first tab.
+const _DEFCARD = __CARDS__ ? Math.max(0, __CARDS__.findIndex(c=>c.default)) : 0;
+let DATA = __CARDS__ ? __CARDS__[_DEFCARD].data : __PAYLOAD__;
+let BET_MODE = "edge";   // "slate" (every fight, fully invested) | "edge" (gated only, Kelly)
+let BANKROLL = 0;          // >0 => show $ stakes instead of slate %
+const SYS = ["FM","EloK","EloM","Glk","WHR","Model"];
+const BOOK_ABBR = {DraftKings:"DK",FanDuel:"FD",BetMGM:"MGM",Caesars:"CZR",Fanatics:"FAN",Bet365:"365",BetOnline:"BOL"};
+const BOOK_ORDER = ["DraftKings","FanDuel","BetMGM","Caesars","Fanatics","Bet365","BetOnline"];
+// Uniform timeline scale shared by EVERY bout card on the page, so a fight's
+// vertical position reflects its real date on one consistent monthly ruler.
+// ---- bout-history timeline geometry ----
+// Cross-side vertical offset scales with the date gap between a favorite fight
+// and an underdog fight: 0 days -> perfectly in line (overlap), 365 days -> one
+// full fight-height offset (borders in line), capped beyond a year. Same-side
+// consecutive fights are merely stacked with slim padding (never overlap).
+const FX_H    = 42;        // visual height of a fight card (matches .fx height in CSS)
+const ROW_PAD = 6;         // slim padding between consecutive SAME-side fights
+const YEAR_PX = FX_H;      // cross-side offset at exactly 365 days = one fight height
+const DAY_MS  = 86400000;
+
+function el(tag, cls, html){const e=document.createElement(tag); if(cls)e.className=cls; if(html!=null)e.innerHTML=html; return e;}
+function oddsStr(o){return o==null?"":(o>0?"+"+o:""+o);}
+// American odds -> decimal multiplier (profit per $1 staked = dec-1).
+function amToDec(o){o=parseFloat(o); if(!isFinite(o)||o===0) return null; return o>0 ? 1+o/100 : 1+100/(-o);}
+function money(x){return '$'+(x||0).toFixed(2);}
+function rec3(r){return r? r[0]+"-"+r[1]+"-"+r[2] : null;}
+
+// one method-split records line, omitting empty buckets
+function recLine(tag, rs){
+  if(!rs || !rs.tot || (rs.tot[0]+rs.tot[1]+rs.tot[2])===0) return null;
+  const parts=[];
+  if(tag) parts.push('<span class="tag">'+tag+'</span>');
+  parts.push('<span class="tot">'+rec3(rs.tot)+'</span>');
+  const order=[["KO","ko"],["Sub","sub"],["Dec","dec"],["UD","ud"],["SD","sd"]];
+  for(const [lbl,k] of order){
+    const r=rs[k]; if(r && (r[0]+r[1]+r[2])>0) parts.push(lbl+': <b>'+rec3(r)+'</b>');
+  }
+  const d=el("div","rec"); d.innerHTML=parts.join(' <span style="color:#444">|</span> '); return d;
+}
+
+// The in-house model rank (index 5, round-robin division rank by opponent-adjusted
+// Elo) is the primary badge; falls back to WHR (index 4) if a fighter is outside
+// the model universe. Other systems stay in the data for easy re-enable.
+function rankStrip(ranks){
+  const s=el("span","ranks");
+  const model = ranks && ranks[5]!=null ? ranks[5] : null;   // index 5 = in-house model
+  const whr   = ranks && ranks[4]!=null ? ranks[4] : null;   // index 4 = WHR fallback
+  const v = model!=null ? model : whr;
+  const c=el("span","rk whr"+(v==null?" na":""), v==null?"#·":"#"+v);
+  c.title=(model!=null
+    ? "Model rank #"+v+" (in-house XGBoost; beats WHR head-to-head)"
+    : (whr!=null ? "WHR #"+v+" (model fallback — outside model universe)" : "unranked"));
+  s.appendChild(c);
+  return s;
+}
+
+// DraftKings primary (current colors/position) + best faded beside it
+function oddsWrap(f, side){
+  const ow=el("div","odds-wrap");
+  const dk=f.dk, best=f.best, fm=f.fm_odds;
+  const primary = dk!=null ? dk : (fm!=null ? fm : best);
+  if(primary==null){ ow.appendChild(el("span","best","no line")); return ow; }
+  if(dk!=null && best!=null && best!==dk){          // a different book beats DK
+    const bk=BOOK_ABBR[f.best_book]||"";
+    const s=el("span","best",'<span class="bk">best </span>'+oddsStr(best)+(bk?' <span class="bk">'+bk+'</span>':''));
+    s.title="best available: "+oddsStr(best)+(f.best_book?" at "+f.best_book:"");
+    ow.appendChild(s);
+  }
+  // colour the moneyline by SLOT (favorite=green / underdog=purple), not by the
+  // sign of the number -- so a pick'em underdog at -110 still reads as the dog.
+  const oddsCls = side ? (side==="dog"?"pos":"neg") : (primary<0?"neg":"pos");
+  const o=el("span","odds "+oddsCls,oddsStr(primary));
+  // name the actual source of the primary line (DraftKings for UFC; BetOnline for a
+  // non-UFC card priced off the BetOnline board) rather than always saying DraftKings.
+  const pbook = f.primary_book || (dk!=null?"DraftKings":(fm!=null?"reference":"best"));
+  o.title=pbook+" "+oddsStr(primary);
+  if(f.primary_book && f.primary_book!=="DraftKings"){
+    o.appendChild(el("span","bk src",' '+(BOOK_ABBR[f.primary_book]||f.primary_book)));
+  }
+  ow.appendChild(o);
+  return ow;
+}
+
+// all books for one fighter, DraftKings emphasized + best flagged (expanded view)
+function bookRow(f){
+  const parts=[];
+  for(const b of BOOK_ORDER){
+    const v=f.books?f.books[b]:null; if(v==null) continue;
+    const cls=(b==="DraftKings")?"dk":"";
+    parts.push('<span class="'+cls+'">'+(BOOK_ABBR[b]||b)+' '+oddsStr(v)+'</span>');
+  }
+  if(f.best!=null) parts.push('<span class="bestmark">best '+oddsStr(f.best)+(f.best_book?' '+(BOOK_ABBR[f.best_book]||''):'')+'</span>');
+  return parts.length?parts.join(' · '):'no odds';
+}
+
+// recommended bet badge (always visible under a bout). singles + parlay legs.
+// Abbreviate market/bet phrasing for the compact one-line banner.
+function abbrPhrase(s){
+  if(!s) return s;
+  let t=s;
+  t=t.replace(/\bUnanimous Decision\b/gi,"UD")
+     .replace(/\bSplit Decision\b/gi,"SD")
+     .replace(/\bSubmission\b/gi,"SUB")
+     .replace(/\bMoneyline\b/gi,"ML")
+     .replace(/\bDecision\b/gi,"DEC")
+     .replace(/\binside distance\b/gi,"inside dist")
+     .replace(/\bby finish\b/gi,"by fin")
+     .replace(/\bRounds?\b/g,"Rd")
+     .replace(/^Win\b/,"W")
+     .replace(/^Fight ends by\b/i,"Ends by");
+  return t;
+}
+// Drop a fighter's first name(s), keep the surname, preserve any trailing
+// " by X" / " ML" qualifier. "Leon Shahbazyan by Submission" -> "Shahbazyan by Sub".
+function abbrBet(s){
+  if(!s) return s;
+  const m=s.match(/^(.*?)(\s+(?:by|ML|to)\b.*)?$/i);
+  let name=m?m[1]:s, tail=m&&m[2]?m[2]:"";
+  // if the leading part looks like a person's name (2+ capitalized words), keep last word
+  const words=name.trim().split(/\s+/);
+  if(words.length>=2 && /^[A-Z]/.test(words[0]) && /^[A-Z]/.test(words[words.length-1])){
+    name=words[words.length-1];
+  }
+  return abbrPhrase((name+tail).trim());
+}
+
+// Collect every leg belonging to a parlay (across all bouts sharing the label),
+// in card order, deduplicated.
+function parlayLegs(label){
+  const out=[], seen=new Set();
+  (DATA.bouts||[]).forEach(b=>{
+    const pk=b.pick;
+    if(pk && pk.parlay && pk.label===label && pk.leg && !seen.has(pk.leg)){
+      seen.add(pk.leg);
+      let sideCls="";
+      if(pk.side && b.fav && pk.side===b.fav.name) sideCls="pick-fav";
+      else if(pk.side && b.dog && pk.side===b.dog.name) sideCls="pick-dog";
+      out.push({text:pk.leg, sideCls});
+    }
+  });
+  return out;
+}
+
+// category of a pick -> tag color class (moneyline / prop / parlay)
+function pickCat(p){
+  if(p.parlay) return "cat-parlay";
+  return (p.market||"")==="Moneyline" ? "cat-ml" : "cat-prop";
+}
+
+// odds VALUE colour: favourite (<=-111) green, underdog (>=-109) purple, -110 white.
+function oddsValCls(o){ return o<=-111?"neg":(o>=-109?"pos":"even"); }
+// pickbar colour for a pick's odds + bet text:
+//  - winner-agnostic props -> neutral (black);
+//  - MONEYLINE picks -> the picked fighter's SLOT colour (model favourite green /
+//    underdog purple), matching the fighter's odds colour in the body, since the
+//    model favourite is what we're backing -- NOT the raw odds value;
+//  - fallback -> odds value.
+function pickColorCls(p, bout){
+  if(p.winner_agnostic) return "even";
+  if(bout && bout.fav && p.side===bout.fav.name) return "neg";
+  if(bout && bout.dog && p.side===bout.dog.name) return "pos";
+  return oddsValCls(p.dk_odds);
+}
+// the slate-value cell text for the current MODE + bankroll. EDGE labels it "bet"
+// (literal Kelly stake), SLATE labels it "slate" (fully-invested share).
+function slateLabel(p){
+  const edge=(BET_MODE==="edge");
+  const pct = edge ? (p.edge_slate_pct||0) : (p.slate_pct!=null?p.slate_pct:p.slate_alloc_pct);
+  if(BANKROLL>0){
+    const stake=BANKROLL*pct/100, dec=amToDec(p.dk_odds);
+    // per-fight: "$stake to win $profit" (profit = stake*(dec-1)); fall back to bare
+    // stake when the pick has no priced ML odds (e.g. winner-agnostic props).
+    return dec ? money(stake)+' to win '+money(stake*(dec-1)) : money(stake);
+  }
+  return (edge?'bet ':'slate ')+pct+'%';
+}
+// empty gold banner for a fight with no pick (keeps the card layout uniform).
+function blankPickBar(){ return el("div","pickbar blank","&nbsp;"); }
+function pickBar(p, bout){
+  const d=el("div","pickbar "+(p.conviction||"med")+(p.parlay?" parlay":""));
+  d.title=p.thesis||"";
+  const eslate=(p.edge_slate_pct||0), sslate=(p.slate_pct!=null?p.slate_pct:p.slate_alloc_pct);
+  const evCls = p.ev_pct>0 ? "pos" : (p.ev_pct<0 ? "neg" : "zero");
+  const stat='<span>P '+Math.round(p.prob*100)+'%</span>'
+    +'<span class="ev '+evCls+'">EV '+(p.ev_pct>=0?"+":"")+p.ev_pct+'%</span>'
+    +'<span class="slate" data-edge="'+eslate+'" data-slate="'+sslate+'" data-odds="'+(p.dk_odds!=null?p.dk_odds:'')+'" title="EDGE: literal Kelly-fraction stake (staking config) | SLATE: fully-invested MV share">'+slateLabel(p)+'</span>';
+  const colCls=pickColorCls(p, bout);
+  const odds='<span class="o '+colCls+'">'+oddsStr(p.dk_odds)+'</span>';
+  if(p.parlay){
+    // Multi-line: a header row, then one row per leg (one per fight in the parlay).
+    const legs=parlayLegs(p.label);
+    const legRows=legs.map((lg,i)=>
+      '<div class="pleg"><span class="legn">'+(i+1)+'</span><span class="legt '+lg.sideCls+'">'+lg.text+'</span></div>'
+    ).join("");
+    d.innerHTML=
+      '<div class="pl-head">'
+        +'<span class="tag cat-parlay">PARLAY ▸</span>'
+        +'<span class="b">'+p.label+'</span>'+odds
+        +'<span class="m">'+p.market+'</span>'+stat
+      +'</div>'
+      +'<div class="pl-legs">'+legRows+'</div>';
+    return d;
+  }
+  const betF=p.bet, betA=abbrBet(p.bet);
+  const mF=p.market, mA=abbrPhrase(p.market);
+  // Bet text colour: same as the odds (slot colour for ML picks; neutral black
+  // for winner-agnostic props).
+  const betCls = colCls;
+  d.innerHTML='<span class="tag '+pickCat(p)+'">PICK ▸</span>'
+    +'<span class="b '+betCls+'" data-full="'+betF+'" data-abbr="'+betA+'">'+betF+'</span>'+odds
+    +'<span class="m" data-full="'+mF+'" data-abbr="'+mA+'">'+mF+'</span>'+stat;
+  return d;
+}
+
+// After layout, if a single-pick banner's bet text is truncated, compact it:
+// 1) abbreviate bet+market, 2) hide the .m label. Parlays are multi-line, skipped.
+function fitPickBars(root){
+  const bars=(root||document).querySelectorAll(".pickbar:not(.parlay)");
+  bars.forEach(bar=>{
+    const b=bar.querySelector(".b");
+    const m=bar.querySelector(".m");
+    if(b) b.textContent=b.getAttribute("data-full");          // reset to full first
+    if(m){ m.textContent=m.getAttribute("data-full"); m.style.display=""; }
+    // overflow if the bet text itself is clipped OR the whole bar overruns
+    const over=()=> (b && b.scrollWidth>b.clientWidth+1) || bar.scrollWidth>bar.clientWidth+1;
+    if(!over()) return;
+    if(b) b.textContent=b.getAttribute("data-abbr");           // 1) abbreviate
+    if(m) m.textContent=m.getAttribute("data-abbr");
+    if(!over()) return;
+    if(m) m.style.display="none";                              // 2) drop market label
+  });
+}
+
+// DraftKings prop menu for a bout (method / distance / total rounds)
+function propsBar(mk){
+  if(!mk) return null;
+  const parts=[];
+  const m=mk.method||{};
+  const ms=["KO/TKO","Submission","Decision","Draw"].filter(k=>m[k]!=null).map(k=>k+' <b>'+m[k]+'</b>').join(' · ');
+  if(ms) parts.push('<span class="lbl">method</span> '+ms);
+  const d=mk.distance||{};
+  if(d.Yes!=null||d.No!=null) parts.push('<span class="lbl">distance</span> Yes <b>'+(d.Yes||"–")+'</b> / No <b>'+(d.No||"–")+'</b>');
+  const t=mk.totals||{};
+  const tk=Object.keys(t).sort();
+  if(tk.length) parts.push('<span class="lbl">rounds</span> '+tk.map(k=>'O/U '+k+' <b>'+(t[k].over||"–")+'</b>/<b>'+(t[k].under||"–")+'</b>').join(' · '));
+  if(!parts.length) return null;
+  const e=el("div","props"); e.innerHTML=parts.join(' <span style="color:#333">|</span> '); return e;
+}
+
+function halfView(f, side, picked){
+  const h=el("div","half "+side+(picked?" picked":""));
+  // line 1
+  const l1=el("div","l1");
+  l1.appendChild(rankStrip(f.ranks));
+  l1.appendChild(el("span","abbr",f.division_abbr||"—"));
+  const nm=el("span","nm",f.name);
+  l1.appendChild(nm);
+  l1.appendChild(oddsWrap(f, side));
+  h.appendChild(l1);
+  // The fighter body, always shown (no controls). EVERY slot ALWAYS renders a
+  // row -- an empty placeholder when the fighter lacks that data -- so the two
+  // fighters' bodies stay line-for-line aligned (e.g. [L3Y] sits across from
+  // [L3Y] even if one fighter has no UFC fights). Order:
+  //   1. measurables  2. full record  3. [UFC]  4. [L3Y]  5. overalls
+  const det=el("div","fdetail");
+  const blank='<div class="dl">&nbsp;</div>';
+  const recOr=(tag,scope)=>{
+    const rs=f.records&&f.records[scope];
+    if(rs&&rs.tot&&(rs.tot[0]+rs.tot[1]+rs.tot[2])>0){
+      const tmp=recLine(tag,rs); if(tmp) return tmp.outerHTML;
+    }
+    return blank;
+  };
+  let body="";
+  body+=(measLine(f)||blank);                          // 1. measurables
+  body+=recOr("", "all");                              // 2. full record
+  body+=recOr("[UFC]", "ufc");                         // 3. UFC split
+  body+=recOr("[L3Y]", "l3y");                         // 4. last-3-years split
+  body+=(overallsLine(f)||blank);                      // 5. overall ratings
+  det.innerHTML=body;
+  h.appendChild(det);
+  return h;
+}
+
+// Place both fighters' fights on one shared vertical ruler.
+// Walk the merged (newest-first) sequence of all fights; each step downward is
+// proportional to the real days since the previous fight, scaled so 365 days =
+// one fight-height and capped there. A per-side floor then guarantees a single
+// fighter's consecutive fights are at least touching (slim padding, no overlap),
+// while opposite-side fights are free to sit in line / overlap when close in date.
+function buildTimeline(A, B){
+  const ev=[];
+  (A||[]).forEach(f=>{ if(f.date) ev.push({f, side:"F", t:new Date(f.date).getTime()}); });
+  (B||[]).forEach(f=>{ if(f.date) ev.push({f, side:"D", t:new Date(f.date).getTime()}); });
+  ev.sort((x,z)=> z.t - x.t);                       // newest at top
+  let y=0, prevT=null, lastY={F:null, D:null};
+  const gaps=[];
+  for(const e of ev){
+    if(prevT!=null){
+      const days=Math.max(0,(prevT - e.t)/DAY_MS);
+      const step=YEAR_PX * Math.min(1, days/365);   // 0..FX_H, capped at 1yr
+      const yBefore=y;
+      y+=step;
+      if(days>365) gaps.push({y:yBefore+step/2, d:days});   // mark compressed >1yr layoffs
+    }
+    const floor = lastY[e.side]!=null ? lastY[e.side]+FX_H+ROW_PAD : null;
+    if(floor!=null && y<floor) y=floor;             // same-side: never overlap
+    e.y=y;
+    lastY[e.side]=y;
+    prevT=e.t;
+  }
+  const maxY=ev.length?Math.max(...ev.map(e=>e.y)):0;
+  return {
+    placedF: ev.filter(e=>e.side==="F").map(e=>({f:e.f,y:e.y})),
+    placedD: ev.filter(e=>e.side==="D").map(e=>({f:e.f,y:e.y})),
+    height: maxY+FX_H+4,
+    gaps
+  };
+}
+
+// human label for a capped (>1yr) layoff marker
+function gapLabel(days){
+  const mo=days/30.4;
+  if(mo>=24) return Math.round(mo/12)+"y";
+  return Math.round(mo)+"mo";
+}
+
+// ---- bout-history abbreviations (applied only when a card's text overflows) ----
+function lastName(name){
+  if(!name) return name;
+  const p=name.trim().split(/\s+/);
+  return p.length>1 ? p[p.length-1] : name;
+}
+function abbrMethod(method){
+  if(!method) return method||"";
+  const m=method;
+  if(/^Decision\s*\(Unanimous\)/i.test(m)) return "UD";
+  if(/^Decision\s*\(Split\)/i.test(m))     return "SD";
+  if(/^Decision\s*\(Majority\)/i.test(m))  return "MD";
+  if(/^Decision/i.test(m))                 return "DEC";
+  if(/Submission/i.test(m))                return "SUB";   // incl. Technical Submission
+  if(/^TKO/i.test(m))                       return "TKO";
+  if(/^KO/i.test(m))                        return "KO";
+  if(/No Contest|^NC/i.test(m))            return "NC";
+  if(/Disqualification|^DQ/i.test(m))      return "DQ";
+  if(/^Draw/i.test(m))                      return "D";
+  return m.replace(/\s*\(.*\)\s*$/,"");                    // else strip parenthetical
+}
+function abbrRound(round){
+  if(!round) return "";
+  return round.replace(/Round\s*(\d+)/i,"R$1");
+}
+
+function fxView(f){
+  const x=el("div","fx");
+  const meta=el("div","meta");
+  meta.appendChild(el("span","res "+f.result,f.result));
+  meta.appendChild(el("span","d",f.date||""));
+  const oppFull=f.opp||"?";
+  const opp=el("span","opp",oppFull);
+  opp.setAttribute("data-full",oppFull);
+  opp.setAttribute("data-abbr",lastName(oppFull));
+  meta.appendChild(opp);
+  if(f.opp_rank) meta.appendChild(el("span","orank",f.opp_rank));
+  x.appendChild(meta);
+  const mFull=[f.method,f.round].filter(Boolean).join(" · ");
+  if(mFull){
+    const mAbbr=[abbrMethod(f.method),abbrRound(f.round)].filter(Boolean).join(" · ");
+    const mth=el("span","mth",mFull);
+    mth.setAttribute("data-full",mFull);
+    mth.setAttribute("data-abbr",mAbbr);
+    x.appendChild(mth);
+  }
+  // concealed archive link: a history entry carrying `href` opens that page in
+  // an overlay on direct click (no visual affordance -- an unlisted deep-cut).
+  if(f.href){
+    x.addEventListener("click",e=>{ e.stopPropagation(); openSecret(f.href); });
+  }
+  return x;
+}
+
+// full-screen gold-bordered overlay hosting an unlisted page (same-origin iframe).
+// Closes on the X, a backdrop click, or Escape.
+function openSecret(href){
+  const ov=el("div","secret-ov");
+  const panel=el("div","secret-panel");
+  const x=el("button","secret-x","✕ CLOSE");
+  const fr=document.createElement("iframe");
+  fr.src=href;
+  panel.appendChild(fr); panel.appendChild(x); ov.appendChild(panel);
+  const close=()=>{ ov.remove(); document.removeEventListener("keydown",onKey); };
+  const onKey=e=>{ if(e.key==="Escape") close(); };
+  x.addEventListener("click",close);
+  ov.addEventListener("click",e=>{ if(e.target===ov) close(); });
+  document.addEventListener("keydown",onKey);
+  document.body.appendChild(ov);
+}
+
+// When a fight card's name or method line overflows its column, swap that line
+// to its abbreviated form (last name / SUB·DEC·UD·SD·R#). Runs on expand + resize.
+function fitHistory(root){
+  if(!root) return;
+  root.querySelectorAll(".fx").forEach(fx=>{
+    const opp=fx.querySelector(".opp");
+    if(opp){
+      opp.textContent=opp.getAttribute("data-full");
+      if(opp.scrollWidth>opp.clientWidth+1) opp.textContent=opp.getAttribute("data-abbr");
+    }
+    const mth=fx.querySelector(".mth");
+    if(mth){
+      mth.textContent=mth.getAttribute("data-full");
+      if(mth.scrollWidth>mth.clientWidth+1) mth.textContent=mth.getAttribute("data-abbr");
+    }
+  });
+}
+
+function historyView(bout){
+  const wrap=el("div","history");
+  // DK prop menu (full-width), then per-book moneyline bar (fav | dog)
+  const pr=propsBar(bout.dk_markets); if(pr) wrap.appendChild(pr);
+  const obw=el("div","obwrap");
+  obw.appendChild(el("div","ob fav", bookRow(bout.fav)));
+  obw.appendChild(el("div","ob dog", bookRow(bout.dog)));
+  wrap.appendChild(obw);
+
+  const A=bout.fav.history||[], B=bout.dog.history||[];
+  if(!A.length && !B.length){ wrap.appendChild(el("div","empty","no history")); return wrap; }
+  const {placedF,placedD,height,gaps}=buildTimeline(A,B);
+
+  // column header naming each fighter (mirrors the 3-col timeline layout)
+  const head=el("div","tlhead");
+  head.appendChild(el("div","th fav", bout.fav.name||"Favorite"));
+  head.appendChild(el("div","th axis",""));
+  head.appendChild(el("div","th dog", bout.dog.name||"Underdog"));
+  wrap.appendChild(head);
+
+  const tl=el("div","tl");
+  const fav=el("div","col fav"), axis=el("div","axis"), dog=el("div","col dog");
+  const tlF=el("div","tlwrap"), tlD=el("div","tlwrap");
+  // every height-bearing element shares the SAME pixel height so the three
+  // columns line up on one ruler.
+  fav.style.height=height+"px"; dog.style.height=height+"px"; axis.style.height=height+"px";
+  tlF.style.height=height+"px"; tlD.style.height=height+"px";
+  fav.appendChild(tlF); dog.appendChild(tlD);
+  for(const p of placedF){ const v=fxView(p.f); v.style.top=p.y+"px"; tlF.appendChild(v); }
+  for(const p of placedD){ const v=fxView(p.f); v.style.top=p.y+"px"; tlD.appendChild(v); }
+  for(const g of gaps){ const n=el("div","gapnote","· "+gapLabel(g.d)+" ·"); n.style.top=g.y+"px"; axis.appendChild(n); }
+  tl.appendChild(fav); tl.appendChild(axis); tl.appendChild(dog);
+  wrap.appendChild(tl);
+  return wrap;
+}
+
+// ---- Per-fighter Details sections (in the fighter body; toggled per fight) ----
+// The fighter body carries four stacked section blocks -- Record / Matchup /
+// Striking / Grappling -- each shown only when the bout footer's multiselect has
+// that section enabled (a `show-<key>` class on the .bout). A fighter shows only
+// the fields we actually have data for.
+
+// inline 0-100 rating, coloured red->green; "rt-mini" is the in-line body variant
+function ratingNum(v){
+  if(v==null) return null;
+  const h=Math.round(120*Math.max(0,Math.min(100,v))/100);
+  return '<b class="rtm" style="--rh:'+h+'">'+v+'</b>';
+}
+// join "Label: <rating>" parts present in `pairs` = [[label, value], ...]
+function statLine(pairs){
+  const out=[];
+  for(const [lbl,v] of pairs){ const r=ratingNum(v); if(r!=null) out.push(lbl+': '+r); }
+  return out.length ? out.join(' <span class="sep">|</span> ') : null;
+}
+// MEASURABLES line (raw facts): one ".dl meas" line, "" if no data.
+function measLine(f){
+  const m=f.ratings&&f.ratings.measurables; if(!m) return "";
+  const facts=[];
+  if(m.height_in!=null) facts.push(fmtHt(m.height_in));
+  if(m.weight_lbs!=null) facts.push(m.weight_lbs+'lb');
+  if(m.reach_in!=null) facts.push('Reach: '+m.reach_in+'"');
+  if(m.stance) facts.push('Stance: '+m.stance);
+  if(m.age!=null) facts.push('Age: '+m.age);
+  return facts.length ? '<div class="dl meas">'+facts.join(' <span class="sep">|</span> ')+'</div>' : "";
+}
+// the category OVERALL ratings line: Power / Chin / Stamina / Striking / Grappling.
+function overallsLine(f){
+  const r=f.ratings; if(!r) return "";
+  const ov=statLine([["Power", r.power&&r.power.overall],["Chin", r.chin&&r.chin.overall],
+                     ["Stamina", r.stamina&&r.stamina.overall],
+                     ["Striking", r.striking&&r.striking.overall],["Grappling", r.grappling&&r.grappling.overall]]);
+  return ov ? '<div class="dl">'+ov+'</div>' : "";
+}
+// one stat-table row: tag cell (right-aligned) + a chip cell per measure column
+// (centered). Empty measure -> empty cell (keeps columns aligned across rows).
+function statTr(tag, groups, key){
+  let h='<tr><td class="rtag">'+tag+'</td>';
+  for(const grp of groups){ const r=grp?ratingNum(grp[key]):null; h+='<td>'+(r||'')+'</td>'; }
+  return h+'</tr>';
+}
+// a stat block rendered as a fixed-layout table so the tag column (sized to the
+// longest tag, SUBMISSIONS) and the three measure columns line up across blocks.
+// header abbreviation tiers: full word -> 4-letter -> 3-letter. fitStatTables
+// (after layout) picks the longest tier that doesn't overlap, per table.
+const HDR_ABBR={
+  "Volume":["Volume","VOLU","VOL"], "Accuracy":["Accuracy","ACCU","ACC"],
+  "Defense":["Defense","DEFN","DEF"], "Precision":["Precision","PREC","PRC"],
+  "Pace":["Pace","PACE","PAC"], "Dominance":["Dominance","DOMN","DOM"],
+  "Suppression":["Suppression","SUPP","SUP"], "Elusiveness":["Elusiveness","ELUS","ELU"],
+  "Evasion":["Evasion","EVAS","EVA"], "Aggression":["Aggression","AGGR","AGG"],
+  "Deterrence":["Deterrence","DETR","DET"], "Sprawl":["Sprawl","SPRL","SPR"],
+  "Escape":["Escape","ESCP","ESC"]
+};
+function statTable(headerLabels, groups, rows){
+  let h='<table class="stt"><colgroup><col class="stt-lbl">'
+    +'<col><col><col></colgroup><tr class="stt-h"><td></td>';
+  for(const l of headerLabels){
+    const a=HDR_ABBR[l]||[l,l,l];
+    h+='<th data-full="'+a[0]+'" data-ab4="'+a[1]+'" data-ab3="'+a[2]+'">'+a[0]+'</th>';
+  }
+  h+='</tr>';
+  for(const [tag,key] of rows) h+=statTr(tag, groups, key);
+  return h+'</table>';
+}
+// After layout, step each stat-table's headers full->4->3 letters until none
+// overflow its column (no header text wraps or clips into a neighbour).
+function fitStatTables(root){
+  (root||document).querySelectorAll("table.stt").forEach(tbl=>{
+    const ths=[...tbl.querySelectorAll("tr.stt-h th")];
+    if(!ths.length) return;
+    for(const tier of ["data-full","data-ab4","data-ab3"]){
+      ths.forEach(th=>{ th.textContent=th.getAttribute(tier); });
+      // fits if every header's content width <= its cell width (no overflow)
+      const ok=ths.every(th=> th.scrollWidth<=th.clientWidth+1);
+      if(ok || tier==="data-ab3") break;
+    }
+  });
+}
+// The 7 striking splits, in display order (rows of the striking tables).
+const STR_ROWS=[["HEAD","head"],["BODY","body"],["LEGS","legs"],["CLINCH","clinch"],
+  ["DISTANCE","distance"],["GROUND","ground"],["ALL","overall"]];
+
+// STRIKING block (Details box): an OFFENSE table (Volume/Accuracy/Dominance) and a
+// DEFENSE table (Suppression/Elusiveness/Evasion), each over the 7 splits.
+function strikingBlock(f){
+  const s=f.ratings&&f.ratings.striking, sd=f.ratings&&f.ratings.striking_def;
+  if(!s && !sd) return "";
+  let h='<div class="dseg seg-striking"><div class="dhdr">Striking</div>';
+  if(s) h+='<div class="dsub">Offense</div>'
+    +statTable(["Volume","Accuracy","Dominance"], [s.volume,s.accuracy,s.dominance], STR_ROWS);
+  if(sd) h+='<div class="dsub">Defense</div>'
+    +statTable(["Suppression","Elusiveness","Evasion"], [sd.suppression,sd.elusiveness,sd.evasion], STR_ROWS);
+  return h+'</div>';
+}
+// a grappling table whose rows are the Takedowns/Submissions/Control(+overall)
+// sub-objects rather than a shared split key. `spec` = [[rowLabel, group, [keys..]], ...].
+function grappleTable(headerLabels, spec){
+  let h='<table class="stt"><colgroup><col class="stt-lbl"><col><col><col></colgroup>'
+    +'<tr class="stt-h"><td></td>';
+  for(const l of headerLabels){ const a=HDR_ABBR[l]||[l,l,l];
+    h+='<th data-full="'+a[0]+'" data-ab4="'+a[1]+'" data-ab3="'+a[2]+'">'+a[0]+'</th>'; }
+  h+='</tr>';
+  for(const [tag,grp,keys] of spec){
+    h+='<tr><td class="rtag">'+tag+'</td>';
+    for(const k of keys){ const v=grp? (k==null?null:grp[k]) : null; const r=ratingNum(v); h+='<td>'+(r||'')+'</td>'; }
+    h+='</tr>';
+  }
+  return h+'</table>';
+}
+// GRAPPLING block: OFFENSE (Takedowns/Submissions x Aggression/Precision/Dominance +
+// Control) and DEFENSE (x Deterrence/Sprawl-or-Escape/Evasion + Scramble).
+function grapplingBlock(f){
+  const g=f.ratings&&f.ratings.grappling, gd=f.ratings&&f.ratings.grappling_def;
+  if(!g && !gd) return "";
+  let h='<div class="dseg seg-grappling"><div class="dhdr">Grappling</div>';
+  if(g) h+='<div class="dsub">Offense</div>'
+    +grappleTable(["Aggression","Precision","Dominance"],[
+      ["TAKEDOWNS", g.takedowns, ["aggression","precision","dominance"]],
+      ["SUBMISSIONS", g.submissions, ["aggression","precision","dominance"]],
+      ["CONTROL", g, [null,"control",null]],
+    ]);
+  if(gd) h+='<div class="dsub">Defense</div>'
+    +grappleTable(["Deterrence","Sprawl","Evasion"],[
+      ["TAKEDOWNS", gd.takedowns, ["deterrence","sprawl","evasion"]],
+      ["SUBMISSIONS", gd.submissions, ["deterrence","escape","evasion"]],
+      ["SCRAMBLE", gd, [null,"scramble",null]],
+    ]);
+  return h+'</div>';
+}
+function fmtHt(inch){ if(inch==null) return null; const f=Math.floor(inch/12); return f+"'"+Math.round(inch-12*f)+'"'; }
+function escapeHtml(s){ return (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+// The expandable Details box: the pick thesis (no header), then each fighter's
+// granular Striking + Grappling sections (with headers), laid out in the same two
+// columns (fav | dog) as the fight body so the stat lines align.
+// Best Bet Timing (EDGE/gated picks ONLY): the placement-timing rule from the OA
+// timing report (pipeline-runs/ae1/yearly/oa_timing_report, 2026-07-06), keyed on
+// the pick's DK odds band: heavy favourites place late, dogs place early,
+// pick'em-band prices are timing-insensitive.
+function betTiming(p){
+  if(!p || !p.gated || p.dk_odds==null) return null;
+  const o=p.dk_odds;
+  if(o<=-230) return "same day as fight";
+  if(o<=-150) return "one day before fight";
+  if(o<=115)  return "any time";
+  return "as early as possible";
+}
+function detailsBox(bout){
+  const thesis=bout.pick&&bout.pick.thesis;
+  const fHas=strikingBlock(bout.fav)+grapplingBlock(bout.fav);
+  const dHas=strikingBlock(bout.dog)+grapplingBlock(bout.dog);
+  if(!thesis && !fHas && !dHas) return null;
+  let h="";
+  const timing=betTiming(bout.pick);
+  if(timing) h+='<p class="d-timing"><b>Best Bet Timing:</b> '+timing+'</p>';
+  if(thesis) h+='<p class="d-thesis">'+escapeHtml(thesis)+'</p>';
+  if(fHas||dHas){
+    h+='<div class="dx-cols">'
+      +'<div class="dx-col">'+fHas+'</div>'
+      +'<div class="dx-mid"></div>'
+      +'<div class="dx-col">'+dHas+'</div>'
+      +'</div>';
+  }
+  const box=el("div","thesisbox"); box.innerHTML=h;
+  return box;
+}
+
+// in-house model's head-to-head read on this matchup (P(fav) vs P(dog)) + a
+// footer MULTISELECT (Details | History). Each chip independently shows/hides
+// its panel; both can be open at once. The Details box (thesis + granular
+// striking/grappling) is created here; History is built lazily by boutView.
+function modelBar(bout){
+  // The Details (granular ratings + thesis) and History chips are DECOUPLED from the model
+  // prediction: they need only ratings/history data, which exists even when the win model has
+  // no read on the bout (e.g. an inactive/unrated fighter like a returning McGregor -> model_fav
+  // null). So always render the bar when EITHER a Details box exists OR any fighter has history;
+  // the "Model A% · B%" line is shown only when model_fav is available.
+  const box=detailsBox(bout);
+  const hasHist=(bout.fav&&bout.fav.history&&bout.fav.history.length)
+              ||(bout.dog&&bout.dog.history&&bout.dog.history.length);
+  if(!box && !hasHist) return null;          // nothing to expand at all
+  const bar=el("div","modelbar");
+  const chips=(box?'<span class="dchip" data-sec="details">Details</span>':'')
+    +(hasHist?'<span class="dchip" data-sec="history">History</span>':'');
+  const modelLine = (bout.model_fav!=null)
+    ? '<span class="mprob"><b>Model</b> '+bout.fav.name+' <b>'+bout.model_fav+'%</b>'
+      +' <span class="mdot">·</span> '+bout.dog.name+' <b>'+(Math.round((100-bout.model_fav)*10)/10)+'%</b></span>'
+    : '<span class="mprob mprob-na"><b>Model</b> <span class="mdot">no rating (insufficient data)</span></span>';
+  // To the LEFT of the model outputs: the computed fight time (when known) and where to
+  // watch (per-fight; can differ prelims vs main -> bout.watch overrides the event default).
+  const ft = bout.fight_time ? '<b class="ftime">'+bout.fight_time+'</b>' : '';
+  const wch = (bout.watch||DATA.event?.broadcast);
+  const wl = wch ? '<span class="fwatch">▶ '+wch+'</span>' : '';
+  const meta = (ft||wl) ? '<span class="mmeta">'+ft+(ft&&wl?' <span class="mdot">·</span> ':'')+wl+'</span>' : '';
+  bar.innerHTML=meta+modelLine+'<span class="dchips">'+chips+'</span>';
+  bar._thesisBox=box;          // appended after the bar by boutView
+  return bar;
+}
+
+function boutView(bout){
+  const b=el("div","bout");
+  // gold banner across the top; in EDGE mode only GATED bouts carry a pick.
+  // Fights with no pick (e.g. non-gated in EDGE) still show a BLANK banner so
+  // the card layout stays uniform.
+  const showPick = bout.pick && !(BET_MODE==="edge" && !bout.pick.gated);
+  b.appendChild(showPick ? pickBar(bout.pick, bout) : blankPickBar());
+  const sum=el("div","summary");
+  const side=bout.pick&&bout.pick.side;
+  sum.appendChild(halfView(bout.fav,"fav", side&&side===bout.fav.name));
+  const mid=el("div","mid");
+  mid.appendChild(el("span","wt",(bout.weight||"")+""));
+  mid.appendChild(el("span","tw","lbs"));
+  sum.appendChild(mid);
+  sum.appendChild(halfView(bout.dog,"dog", side&&side===bout.dog.name));
+  b.appendChild(sum);
+  const mb=modelBar(bout);
+  let detailsBoxEl=null;
+  if(mb){ b.appendChild(mb); if(mb._thesisBox){ detailsBoxEl=mb._thesisBox; b.appendChild(detailsBoxEl); } }
+
+  // History panel is built lazily on first reveal (the fight-history rendering
+  // is unchanged -- still .bout.open .history, measured by fitHistory).
+  let built=false, hv=null;
+  const detailsChip=mb&&mb.querySelector('.dchip[data-sec="details"]');
+  const histChip=mb&&mb.querySelector('.dchip[data-sec="history"]');
+  function setHistory(on){
+    if(on && !built){ hv=historyView(bout); b.appendChild(hv); built=true; }
+    b.classList.toggle("open", on);
+    if(histChip) histChip.classList.toggle("on", on);
+    if(on && hv) fitHistory(hv);   // measure only once visible
+  }
+  function setDetails(on){
+    if(!detailsBoxEl) return;
+    detailsBoxEl.classList.toggle("open", on);
+    if(detailsChip) detailsChip.classList.toggle("on", on);
+    if(on) fitStatTables(detailsBoxEl);   // measure header widths once visible
+  }
+  // DETAILS / HISTORY chips: a direct click toggles ONLY that panel (independent).
+  if(detailsChip && detailsBoxEl){
+    detailsChip.addEventListener("click",e=>{ e.stopPropagation();
+      setDetails(!detailsBoxEl.classList.contains("open")); });
+  }
+  if(histChip){
+    histChip.addEventListener("click",e=>{ e.stopPropagation();
+      setHistory(!b.classList.contains("open")); });
+  }
+  // Clicking anywhere ELSE on the bout cycles the pair through 00 -> 01 -> 11 -> 00
+  // (both collapsed -> history only -> both expanded -> both collapsed). Chips
+  // stopPropagation above, so a direct chip click never triggers this cycle.
+  b.addEventListener("click",()=>{
+    const hasDetails=!!detailsBoxEl;
+    const dOn=hasDetails && detailsBoxEl.classList.contains("open");
+    const hOn=b.classList.contains("open");
+    if(!hOn){ setDetails(false); setHistory(true); }          // 00/10 -> 01
+    else if(hasDetails && !dOn){ setDetails(true); setHistory(true); }  // 01 -> 11
+    else { setHistory(false); setDetails(false); }            // 11 (or no-details 01) -> 00
+  });
+  return b;
+}
+
+function render(){
+  document.getElementById("ev-name").textContent = DATA.event?.name || "—";
+  // date, then (event first-fight time when known) and where-to-watch, to the right.
+  const _evt = DATA.event?.event_time ? " · "+DATA.event.event_time : "";
+  document.getElementById("ev-date").textContent = (DATA.event?.date || "") + _evt;
+  const wEl=document.getElementById("ev-watch");
+  wEl.textContent = DATA.event?.broadcast ? ("▶ "+DATA.event.broadcast) : "";
+  const sumEl=document.getElementById("ev-summary");
+  if(sumEl){ const s=DATA.event?.summary; sumEl.textContent=s||""; sumEl.style.display=s?"":"none"; }
+  const card=document.getElementById("card");
+  card.innerHTML="";
+  // BOTH modes show every fight. In EDGE, only GATED bouts carry a pick banner
+  // (non-gated bouts simply have no pick); boutView handles that per BET_MODE.
+  (DATA.bouts||[]).forEach(b=>card.appendChild(boutView(b)));
+  fitPickBars(card);
+}
+render();
+
+// ---- EDGE/SLATE toggle + bankroll -> $ stakes ----
+function refreshSlateLabels(){
+  const edge=BET_MODE==="edge";
+  let risk=0, win=0;   // slate-wide totals when a bankroll is entered
+  document.querySelectorAll(".pickbar .slate[data-slate]").forEach(s=>{
+    const pct=parseFloat(edge?s.dataset.edge:s.dataset.slate)||0;
+    if(BANKROLL>0){
+      const stake=BANKROLL*pct/100, dec=amToDec(s.dataset.odds);
+      s.textContent = dec ? money(stake)+' to win '+money(stake*(dec-1)) : money(stake);
+      risk+=stake; if(dec) win+=stake*(dec-1);
+    } else {
+      s.textContent = (edge?'bet ':'slate ')+pct+'%';
+    }
+  });
+  updateBetTotals(risk, win);
+}
+// Show slate-wide Risk / Win totals to the left of the bankroll box (only once a
+// bankroll is entered). Risk = Σ stakes; Win = Σ profit-if-each-pick-wins.
+function updateBetTotals(risk, win){
+  const box=document.getElementById("bettotals");
+  if(!box) return;
+  if(BANKROLL>0){
+    box.innerHTML='<span class="bt-risk">Risk '+money(risk)+'</span>'
+                 +'<span class="bt-win">Win '+money(win)+'</span>';
+    box.hidden=false;
+  } else { box.hidden=true; box.innerHTML=''; }
+}
+function setBetMode(m){
+  BET_MODE=m;
+  document.getElementById("mode-edge").classList.toggle("active",m==="edge");
+  document.getElementById("mode-slate").classList.toggle("active",m==="slate");
+  render(); refreshSlateLabels(); refitAll();
+}
+document.getElementById("mode-edge").addEventListener("click",()=>setBetMode("edge"));
+document.getElementById("mode-slate").addEventListener("click",()=>setBetMode("slate"));
+document.getElementById("bankroll").addEventListener("input",e=>{
+  BANKROLL=parseFloat(e.target.value)||0; refreshSlateLabels();
+});
+
+// ===================== RANKING PAGES + TOGGLE =====================
+const DIV_ORDER=["P4P","Heavyweight","Light Heavyweight","Middleweight","Welterweight",
+  "Lightweight","Featherweight","Bantamweight","Flyweight","Strawweight",
+  "W-Featherweight","W-Bantamweight","W-Flyweight","W-Strawweight","W-Atomweight"];
+// abbreviated weight-class chips (one-line selector)
+const DIV_ABBR={"P4P":"P4P","Heavyweight":"HWT","Light Heavyweight":"LHW","Middleweight":"MW",
+  "Welterweight":"WW","Lightweight":"LW","Featherweight":"FW","Bantamweight":"BW",
+  "Flyweight":"FLW","Strawweight":"SW","W-Featherweight":"WFW","W-Bantamweight":"WBW",
+  "W-Flyweight":"WFL","W-Strawweight":"WSW","W-Atomweight":"WAW"};
+function divAbbr(d){ return DIV_ABBR[d]||d; }
+function orderDivs(keys){
+  const k=new Set(keys); const out=[];
+  for(const d of DIV_ORDER) if(k.has(d)){ out.push(d); k.delete(d); }
+  return out.concat([...k].sort());
+}
+function pct(v){ return v==null?"—":(Math.round(v*10)/10)+"%"; }
+// a 0-100 rating cell (reuses the red->green .rtm chip); blank when unmeasured
+function rcell(v){ const c=ratingNum(v); return '<td class="rk-rt">'+(c||'<span class="rk-na">—</span>')+'</td>'; }
+
+// ---- Fighter Rankings view state: which column set + sub-selection ----
+let _FVIEW="overall";          // "overall" | "striking" | "grappling"
+let _FSTR="all";               // striking split: head|body|legs|all
+let _FGRP="offense";           // grappling side: offense|defense
+let _FSORT="rrwin";            // Overall ordering measure: "rrwin" | "elo" (DESC only). DEFAULT=RR-WIN%
+// (the tau-corrected true round-robin win%; the headline rating). Sort is chosen by CLICKING the
+// RR-WIN% or Elo column header -- there is no separate "Sort by" control.
+// the in-division rank field each Overall sort measure orders by (ascending rank == measure desc)
+const FSORT_RANK={rrwin:"winpct_rank", elo:"elo_rank"};
+const FSORT_LBL={rrwin:"RR-WIN%", elo:"Elo"};
+const FSHOW_N=25;              // show only the top-N for the active measure (data holds the union)
+// column specs per view: [headerLabel, accessor(comp)->0-100]
+const FCOLS={
+  overall:[["PWR",c=>c&&c.group.PWR],["CHN",c=>c&&c.group.CHN],["STA",c=>c&&c.group.STA],
+           ["STR",c=>c&&c.group.STR],["GPL",c=>c&&c.group.GPL]],
+  striking:[["O-VOL",c=>sc(c,"O-VOL")],["O-ACC",c=>sc(c,"O-ACC")],["O-DOM",c=>sc(c,"O-DOM")],
+            ["D-SUP",c=>sc(c,"D-SUP")],["D-ELU",c=>sc(c,"D-ELU")],["D-EVA",c=>sc(c,"D-EVA")],
+            ["OVR",c=>sc(c,"OVR")]],
+  grappling:[["TKD-AGG",c=>gc(c,"TKD-AGG")],["TKD-PREC",c=>gc(c,"TKD-PREC")],["TKD-DOM",c=>gc(c,"TKD-DOM")],
+             ["SUB-AGG",c=>gc(c,"SUB-AGG")],["SUB-PREC",c=>gc(c,"SUB-PREC")],["SUB-DOM",c=>gc(c,"SUB-DOM")],
+             ["CTRL",c=>gc(c,"CTRL")],["ALL",c=>gc(c,"ALL")]],
+};
+function sc(c,k){ return c&&c.striking&&c.striking[_FSTR]?c.striking[_FSTR][k]:null; }
+function gc(c,k){ return c&&c.grappling&&c.grappling[_FGRP]?c.grappling[_FGRP][k]:null; }
+// sort key for the active view: Overall keeps the headline rank; sub-views sort by
+// their summary column (OVR for striking, ALL for grappling) desc, nulls last.
+function fsortKey(r){
+  if(_FVIEW==="striking") return sc(r.comp,"OVR");
+  if(_FVIEW==="grappling") return gc(r.comp,"ALL");
+  return null;
+}
+
+// per-row promotion badge: UFC (accent) / PFL incl. its Bellator+WSOF lineage (orange).
+// Falls back to the is_ufc flag if no org string is present (older artifacts).
+// per-row PROMOTION BANNER (analyst 2026-06-30): a chip filled with the org's brand colour, for the
+// organizations represented in the rankings. Text colour auto-contrasts against the fill (dark text on
+// light brand colours -- KSW white, ACA gold, ONE/Oktagon yellow, RIZIN near-white -- else light text).
+// Bellator/WSOF fold into PFL (its lineage). Orgs without a listed colour render no chip.
+const ORG_COLORS={UFC:"#D20A0A",PFL:"#052383",KSW:"#ffffff",ACA:"#bd9b5e",ONE:"#f2e087",
+  RIZIN:"#eef1f2",DEEP:"#df3805",SHOOTO:"#fe0001",LFA:"#333a56",PANCRASE:"#c8000b",OKTAGON:"#ffd10c"};
+function _orgTextColor(hex){
+  const c=hex.replace("#","");
+  const r=parseInt(c.slice(0,2),16),g=parseInt(c.slice(2,4),16),b=parseInt(c.slice(4,6),16);
+  // relative luminance -> dark text on light fills, light text on dark fills
+  return (0.2126*r+0.7152*g+0.0722*b)>150 ? "#0b0d12" : "#ffffff";
+}
+function orgBadge(r){
+  let o=(r.org||"").toUpperCase();
+  if(!o&&r.is_ufc) o="UFC";
+  if(o==="BELLATOR"||o==="WSOF") o="PFL";        // PFL lineage
+  const bg=ORG_COLORS[o];
+  if(!bg) return "";
+  const fg=_orgTextColor(bg);
+  return '<span class="rk-orgchip" style="background:'+bg+';color:'+fg+'">'+o+'</span>';
+}
+
+function fighterTable(rows){
+  const cols=FCOLS[_FVIEW];
+  // Overall column order (analyst spec 2026-06-29): # | Fighter | ELO | PWR CHN STA STR GPL | RR-WIN%
+  // ELO and RR-WIN% headers are CLICKABLE to choose the sort measure (descending only); the active
+  // one is marked. RR-WIN% is the gold headline rating and the default sort. No separate "Sort by".
+  const sortableHdr=(meas,lbl,cls)=>
+    '<th class="'+cls+(_FSORT===meas?' rk-sorton':'')+'" data-sort="'+meas+'" '
+    +'title="click to sort by '+lbl+' (descending)">'+lbl+(_FSORT===meas?' ▼':'')+'</th>';
+  // P4P page = cross-division pool (rows carry a `div`); show a Weight-class column after Fighter.
+  const isP4P=rows.length>0&&rows[0].div!=null;
+  let h='<table class="rk-table"><tr><th>#</th><th>Fighter</th>'
+    +(isP4P?'<th>Weight</th>':'')
+    +sortableHdr("elo","Elo","rk-sorth");
+  for(const [lbl] of cols) h+='<th class="rk-rt-h">'+lbl+'</th>';
+  h+=sortableHdr("rrwin","RR-WIN%","rk-sorth rk-gold-h");
+  h+='</tr>';
+  // Overall: order by the active measure (DEFAULT RR-WIN% = the fused RR_pin x topology-trust
+  // ranking) DESC, nulls last. Sub-views: re-sort by the summary component column (nulls last).
+  // The displayed # is the position in the active ordering (so Overall numbers that order 1,2,3...).
+  let ordered;
+  if(_FVIEW!=="overall"){
+    // Striking / Grappling: include ONLY fighters that HAVE data for the active sub-view
+    // (a non-null summary column -- OVR for striking, ALL for grappling), then sort desc.
+    ordered=rows.filter(r=>fsortKey(r)!=null).map((r,i)=>[r,i]).sort((a,b)=>{
+      const va=fsortKey(a[0]), vb=fsortKey(b[0]);
+      return vb-va;
+    }).map(x=>x[0]).slice(0,FSHOW_N);
+  } else {
+    // Order by the ACTIVE measure (MBTD | RR-WIN% | Elo) via its in-division _RANK
+    // (ascending rank == measure descending; descending-only by design). Ranks are
+    // UFC-only / measure-specific; a null rank means the fighter isn't ranked by that
+    // measure -> sort last. The data structure holds the UNION of each measure's top-N,
+    // so after sorting we SLICE to the active measure's top-N (FSHOW_N).
+    const rankf=FSORT_RANK[_FSORT]||"whr_skill_rank";
+    ordered=rows.map((r,i)=>[r,i]).sort((a,b)=>{
+      const va=a[0][rankf], vb=b[0][rankf];
+      if(va==null&&vb==null) return a[1]-b[1];   // both unranked -> native order
+      if(va==null) return 1; if(vb==null) return -1;
+      return va-vb;                               // rank ascending == measure descending
+    }).map(x=>x[0]).slice(0,FSHOW_N);
+  }
+  let pos=0;
+  for(const r of ordered){
+    pos++;
+    h+='<tr><td class="rk-pos">'+pos+'</td>'
+      +'<td class="rk-name">'+r.name+orgBadge(r)+'</td>'
+      +(isP4P?'<td class="rk-dim">'+divAbbr(r.div)+'</td>':'')
+      +'<td class="rk-dim">'+Math.round(r.elo)+'</td>';
+    for(const [,acc] of cols) h+=rcell(acc(r.comp));
+    h+='<td class="rk-num rk-gold">'+pct(r.win_pct)+'</td>';
+    h+='</tr>';
+  }
+  return h+'</table>';
+}
+
+// the view selector (Overall/Striking/Grappling) + sub-controls, above #ftable
+function fighterControls(redraw){
+  const wrap=el("div","fviewsel");
+  const mk=(lbl,active,on)=>{ const b=el("button","divbtn"+(active?" active":""),lbl); b.onclick=on; return b; };
+  for(const v of ["overall","striking","grappling"]){
+    const lbl=v[0].toUpperCase()+v.slice(1);
+    wrap.appendChild(mk(lbl,_FVIEW===v,()=>{_FVIEW=v;redraw();}));
+  }
+  // sub-controls on their own line
+  const sub=el("div","fsubsel");
+  if(_FVIEW==="striking"){
+    for(const s of ["all","head","body","legs"])
+      sub.appendChild(mk(s[0].toUpperCase()+s.slice(1),_FSTR===s,()=>{_FSTR=s;redraw();}));
+  } else if(_FVIEW==="grappling"){
+    for(const s of ["offense","defense"])
+      sub.appendChild(mk(s[0].toUpperCase()+s.slice(1),_FGRP===s,()=>{_FGRP=s;redraw();}));
+  }
+  // Overall has NO "Sort by" control -- sorting is by clicking the Elo / RR-WIN% column header
+  // (wired in fighterTable's redraw via _wireSortHeaders). Sub-row is empty in Overall.
+  return [wrap,sub];
+}
+
+function renderFighters(){
+  const data=DATA.fighterRanks||{};
+  const divs=orderDivs(Object.keys(data));
+  const sel=document.getElementById("fdiv"), tbl=document.getElementById("ftable");
+  const ctl=document.getElementById("fviewctl");
+  if(!divs.length){ tbl.innerHTML='<p class="subtle">Rankings not built yet.</p>'; return; }
+  let cur=divs[0];
+  const draw=()=>{
+    tbl.innerHTML=fighterTable(data[cur]||[]);
+    [...sel.children].forEach(b=>b.classList.toggle("active",b.dataset.div===cur));
+    ctl.innerHTML=""; for(const node of fighterControls(draw)) ctl.appendChild(node);
+    // CLICKABLE sort headers (Overall view): Elo / RR-WIN%, descending only.
+    tbl.querySelectorAll("th[data-sort]").forEach(th=>{
+      th.style.cursor="pointer";
+      th.addEventListener("click",()=>{ _FSORT=th.dataset.sort; draw(); });
+    });
+  };
+  sel.innerHTML="";
+  // abbreviated weight-class chips (one line); title carries the full name
+  for(const d of divs){ const b=el("button","divbtn",divAbbr(d)); b.dataset.div=d; b.title=d;
+    b.onclick=()=>{cur=d;draw();}; sel.appendChild(b); }
+  draw();
+}
+
+function promoTable(rows, withDiv){
+  let h='<table class="rk-table"><tr><th>#</th><th>Promotion</th><th>Talent mass</th><th>Fighters</th><th>RR-WIN%</th><th>Avg Elo</th></tr>';
+  for(const r of rows){
+    h+='<tr><td class="rk-pos">'+r.rank+'</td><td class="rk-org">'+r.org+'</td>'
+      +'<td class="rk-num">'+(Math.round(r.talent_mass*100)/100)+'</td>'
+      +'<td class="rk-dim">'+r.n+'</td>'
+      +'<td class="rk-num">'+pct(r.avg_win_pct)+'</td>'
+      +'<td class="rk-dim">'+Math.round(r.avg_elo)+'</td></tr>';
+  }
+  return h+'</table>';
+}
+// Promotion Rankings mirrors Fighter Rankings: a single abbreviated weight-class selector that
+// DEFAULTS to P4P (the cross-division pool) with the weight chips toggling to one division. One
+// table below. "P4P" is a synthetic key placed first; the weight keys use the shared DIV_ABBR
+// chips. Each division shows the top slice sorted by the module's talent_mass -> RR-WIN% -> Avg
+// Elo -> roster-size order.
+function renderPromos(){
+  const pr=DATA.promoRanks||{};
+  const ptbl=document.getElementById("ptable"), sel=document.getElementById("pdiv");
+  if(!pr.p4p||!pr.p4p.length){ ptbl.innerHTML='<p class="subtle">Promotion rankings not built yet.</p>'; return; }
+  const bw=pr.byweight||{};
+  // selector keys: P4P first, then the weight classes present in the by-weight data (DIV_ORDER).
+  const keys=["P4P"].concat(orderDivs(Object.keys(bw)));
+  const rowsFor=k=> k==="P4P" ? pr.p4p.slice(0,25) : (bw[k]||[]).slice(0,15);
+  let cur="P4P";
+  const draw=()=>{
+    ptbl.innerHTML=promoTable(rowsFor(cur), cur!=="P4P");
+    [...sel.children].forEach(b=>b.classList.toggle("active",b.dataset.div===cur));
+  };
+  sel.innerHTML="";
+  for(const k of keys){ const b=el("button","divbtn",divAbbr(k)); b.dataset.div=k; b.title=k;
+    b.onclick=()=>{cur=k;draw();}; sel.appendChild(b); }
+  draw();
+}
+
+let _builtF=false,_builtP=false,_activeView="card";
+function showView(v){
+  _activeView=v;
+  for(const [name,id] of [["card","view-card"],["fighters","view-fighters"],["promos","view-promos"]])
+    document.getElementById(id).hidden = (name!==v);
+  document.querySelectorAll(".navbtn").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
+  if(v==="fighters"&&!_builtF){ renderFighters(); _builtF=true; }
+  if(v==="promos"&&!_builtP){ renderPromos(); _builtP=true; }
+  refitAll();
+}
+document.querySelectorAll(".navbtn").forEach(b=>b.addEventListener("click",()=>showView(b.dataset.view)));
+
+// ---- promotion card tabs (multi-card page only) ----
+// Switching a tab swaps the active card's DATA and re-renders whatever sub-view is
+// open (Card / Fighter Rankings / Promotion Rankings), preserving the EDGE/SLATE mode.
+function switchCard(i){
+  DATA = __CARDS__[i].data;
+  document.querySelectorAll(".cardtab").forEach((b,j)=>b.classList.toggle("active",j===i));
+  _builtF=false; _builtP=false;
+  render(); refreshSlateLabels();
+  if(_activeView==="fighters"){ renderFighters(); _builtF=true; }
+  else if(_activeView==="promos"){ renderPromos(); _builtP=true; }
+  refitAll();
+}
+if(__CARDS__){
+  const bar=document.getElementById("cardtabs");
+  bar.hidden=false;
+  __CARDS__.forEach((c,i)=>{
+    const b=document.createElement("button");
+    b.className="cardtab"+(i===_DEFCARD?" active":"");
+    b.textContent=c.label||c.key||("Card "+(i+1));
+    b.addEventListener("click",()=>switchCard(i));
+    bar.appendChild(b);
+  });
+}
+
+// Re-fit every banner + any open history. Pickbars reset to full text first so a
+// wider layout restores the un-abbreviated version. Debounced.
+let _fitT=null;
+function refitAll(){
+  clearTimeout(_fitT);
+  _fitT=setTimeout(()=>{
+    fitPickBars(document);
+    document.querySelectorAll(".bout.open .history").forEach(h=>fitHistory(h));
+    document.querySelectorAll(".thesisbox.open").forEach(b=>fitStatTables(b));
+  },60);
+}
+// The artifact frame often settles its width AFTER first paint, and a plain
+// resize event isn't always delivered — so observe the container directly and
+// also re-fit on the next frame and on load.
+window.addEventListener("resize", refitAll);
+window.addEventListener("load", refitAll);
+requestAnimationFrame(()=>{ fitPickBars(document); requestAnimationFrame(refitAll); });
+if(window.ResizeObserver){
+  const ro=new ResizeObserver(refitAll);
+  ro.observe(document.documentElement);
+  const card=document.getElementById("card");
+  if(card) ro.observe(card);
+}
+</script>
+</body>
+</html>
