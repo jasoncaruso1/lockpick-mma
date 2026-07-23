@@ -67,6 +67,18 @@
   .best{font-size:9px;color:#717784;font-variant-numeric:tabular-nums}  /* best, faded */
   .best .bk{color:#565c68;font-size:8px}
   .odds .src{color:#565c68;font-size:8px;font-weight:600}   /* primary-line book tag (e.g. BOL) */
+  /* manual odds-override (what-if) editing: a dashed-gold underline marks an odds the
+     user has hand-adjusted; the inline input appears while "Adjust odds" mode is on. */
+  .odds.edited{border-bottom:1px dashed var(--gold);cursor:text}
+  .oddsedit{width:50px;background:#0c0e12;border:1px solid var(--gold-dim);border-radius:5px;
+    color:var(--fg);font:inherit;font-weight:700;font-variant-numeric:tabular-nums;
+    text-align:right;padding:1px 3px;outline:none}
+  .oddsedit:focus{border-color:var(--gold)}
+  .frevert{cursor:pointer;color:var(--gold-dim);font-size:10px;font-weight:800;
+    border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-top:3px;line-height:1.6;
+    white-space:nowrap}
+  .frevert:hover{color:var(--gold);border-color:var(--gold-dim)}
+  .pickbar .slate.whatif,.pickbar .ev.whatif{font-style:italic;text-decoration:underline dotted var(--gold)}
 
   /* expanded per-book odds bar (full-width band, two halves) */
   .obwrap{display:flex;align-items:stretch;background:#0c0e12;
@@ -301,6 +313,15 @@
   .bettotals .bt-win{color:var(--gold)}
   .bankroll input{width:78px;background:transparent;border:none;color:var(--fg);font:inherit;
     font-variant-numeric:tabular-nums;outline:none}
+  .oddsbtn{background:var(--row);color:var(--dim);border:1px solid var(--line);border-radius:8px;
+    padding:6px 10px;font-size:12px;font-weight:800;letter-spacing:.3px;cursor:pointer;font-family:inherit}
+  .oddsbtn:hover{color:var(--fg)}
+  .oddsbtn.active{color:#241c02;border-color:#7a5f16;text-shadow:0 1px 0 rgba(255,255,255,.25);
+    background:linear-gradient(95deg,#a9851f,#e9d27a 30%,#f6e9a8 50%,#caa233 75%,#9c7d1e)}
+  .oddsrevert{background:transparent;color:var(--gold-dim);border:1px solid var(--line);border-radius:8px;
+    padding:6px 8px;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit}
+  .oddsrevert:hover{color:var(--gold);border-color:var(--gold-dim)}
+  .oddsrevert[hidden]{display:none}
   .modetoggle{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
   .modebtn{background:var(--row);color:var(--dim);border:none;padding:6px 12px;font-size:12px;
     font-weight:800;letter-spacing:.5px;cursor:pointer;font-family:inherit}
@@ -469,6 +490,8 @@
       <div id="bettotals" class="bettotals" title="Risk = total staked across the slate | Win = total profit if every pick wins" hidden></div>
       <label class="bankroll" title="enter bankroll to convert slate % to $ stakes">$
         <input id="bankroll" type="number" min="0" step="0.01" inputmode="decimal" placeholder="bankroll"></label>
+      <button id="odds-revert-all" class="oddsrevert" title="clear every manual odds adjustment on this card" hidden>↺ all</button>
+      <button id="odds-edit-toggle" class="oddsbtn" title="Adjust odds: click a fighter's moneyline to enter a what-if price. Adjustments are saved in this browser and persist through reload until the published line for that fighter changes (a republish). EV and EDGE bet-size recompute at your price; picks are NOT re-gated.">✎ Odds</button>
       <div class="modetoggle" title="EDGE: only bets within the model gate, at Kelly sizes | SLATE: a pick on every fight, fully invested">
         <button id="mode-edge" class="modebtn">EDGE</button>
         <button id="mode-slate" class="modebtn active">SLATE</button>
@@ -516,6 +539,103 @@ const _DEFCARD = __CARDS__ ? Math.max(0, __CARDS__.findIndex(c=>c.default)) : 0;
 let DATA = __CARDS__ ? __CARDS__[_DEFCARD].data : __PAYLOAD__;
 let BET_MODE = "slate";   // "slate" (every fight, fully invested) | "edge" (gated only, Kelly)
 let BANKROLL = 0;          // >0 => show $ stakes instead of slate %
+let EDIT_ODDS = false;     // "Adjust odds" what-if mode: click a moneyline to override it
+
+// ---------------- manual odds overrides (browser-local what-ifs) ----------------
+// The user can hand-adjust any fighter's moneyline to explore "what if the price were X".
+// Overrides live in localStorage, namespaced per CARD (event id), so they survive reloads
+// and tab switches. INVALIDATION ("until the next republish"): each override records the
+// PUBLISHED line it was made against; on load, if the card now publishes a DIFFERENT line
+// for that fighter (a fresh odds pull was republished), the stale override is dropped and
+// the real line shows. A fighter whose line is unchanged keeps the user's what-if.
+// We never mutate the published fields (f.dk/f.best/...); the override rides on f._ovr, and
+// the picked-fighter pick's EV + EDGE Kelly-size recompute at the effective price. We do NOT
+// re-gate (add/remove picks or flip `gated`) -- that stays edge_refresh's job on republish.
+const OVR_NS = "lockpick:odds:";
+function _ovrKey(){ return OVR_NS + ((DATA && DATA.event && DATA.event.id!=null) ? DATA.event.id : "single"); }
+function loadOverrides(){ try{ return JSON.parse(localStorage.getItem(_ovrKey())) || {}; }catch(e){ return {}; } }
+function saveOverrides(m){ try{
+    if(m && Object.keys(m).length) localStorage.setItem(_ovrKey(), JSON.stringify(m));
+    else localStorage.removeItem(_ovrKey());
+  }catch(e){} }
+// the PUBLISHED primary line for a fighter (never includes an override) -- matches oddsWrap's pick
+function baseOdds(f){ return f && f.dk!=null ? f.dk : (f && f.fm_odds!=null ? f.fm_odds : (f? f.best : null)); }
+// the EFFECTIVE line actually shown/used (override if present, else published)
+function effOdds(f){ return f && f._ovr!=null ? f._ovr : baseOdds(f); }
+function hasOverride(f){ return !!(f && f._ovr!=null); }
+function boutOverridden(b){ return hasOverride(b&&b.fav) || hasOverride(b&&b.dog); }
+function anyOverride(){ return (DATA.bouts||[]).some(boutOverridden); }
+// the card's Kelly FRACTION (0.30 UFC / 0.49 non-UFC) -- derived robustly from any gated
+// pick's served ratio (edge_slate / full_kelly = K, invariant to the price), cached per card.
+function cardKfrac(){
+  if(DATA._kfrac!=null) return DATA._kfrac;
+  let k=0.49;
+  for(const b of (DATA.bouts||[])){ const p=b.pick;
+    if(p && p.kelly_full_pct>0 && p.edge_slate_pct>0){ k=p.edge_slate_pct/p.kelly_full_pct; break; }
+  }
+  DATA._kfrac=k; return k;
+}
+// snapshot a pick's PRISTINE served numbers once, so revert restores exactly and K is stable
+function _initPick(p){
+  if(p._snap) return;
+  p._snap = {dk_odds:p.dk_odds, ev_pct:p.ev_pct, kelly_full_pct:p.kelly_full_pct, edge_slate_pct:p.edge_slate_pct};
+  p._kfrac = (p.kelly_full_pct>0 && p.edge_slate_pct>0) ? (p.edge_slate_pct/p.kelly_full_pct) : cardKfrac();
+}
+function restorePickBase(b){ const p=b.pick; if(!p) return; _initPick(p);
+  p.dk_odds=p._snap.dk_odds; p.ev_pct=p._snap.ev_pct; p.kelly_full_pct=p._snap.kelly_full_pct;
+  p.edge_slate_pct=p._snap.edge_slate_pct; p._whatif=false; }
+// recompute the picked-fighter ML pick's EV + full/EDGE Kelly at the effective (overridden) price.
+// Fighter moneyline picks only; props / winner-agnostic / parlays keep their served numbers.
+function recomputePick(b){
+  const p=b.pick; if(!p) return; _initPick(p);
+  if(p.parlay || p.winner_agnostic || (p.market && p.market!=="Moneyline")){ restorePickBase(b); return; }
+  const pf = (b.fav && p.side===b.fav.name) ? b.fav : ((b.dog && p.side===b.dog.name) ? b.dog : null);
+  if(!pf || !hasOverride(pf)){ restorePickBase(b); return; }
+  const o=effOdds(pf), dec=amToDec(o), pr=p.prob;
+  if(o==null || dec==null || pr==null){ restorePickBase(b); return; }
+  p.dk_odds=o;
+  p.ev_pct=Math.round((pr*dec-1)*1000)/10;
+  const fk=(pr*dec-1)/(dec-1);                       // textbook full Kelly (server's method)
+  p.kelly_full_pct=Math.round(fk*1000)/10;
+  p.edge_slate_pct=Math.max(0, Math.round(p._kfrac*fk*10000)/100);
+  p._whatif=true;                                    // flag: numbers are user what-ifs, not served
+}
+// Apply the stored overrides to the ACTIVE card's DATA (called first thing in render()):
+// set f._ovr where a stored override still matches the published base, drop stale ones,
+// then recompute affected picks. Idempotent; safe on every render / tab switch.
+function applyOverrides(){
+  const map=loadOverrides(); let dirty=false;
+  (DATA.bouts||[]).forEach(b=>{
+    for(const sk of ["fav","dog"]){
+      const f=b[sk]; if(!f || f.id==null) continue;
+      delete f._ovr;
+      const rec=map[String(f.id)];
+      if(rec!=null){
+        if(rec.base===baseOdds(f)){ f._ovr=rec.val; }       // still valid -> apply
+        else { delete map[String(f.id)]; dirty=true; }       // line moved on republish -> drop
+      }
+    }
+    recomputePick(b);
+  });
+  if(dirty) saveOverrides(map);
+}
+// Set / clear one fighter's override, persist, re-render.
+function setFighterOverride(f, val){
+  if(f==null || f.id==null) return;
+  const map=loadOverrides(); const base=baseOdds(f);
+  const v=(val==null||val==="") ? null : parseInt(val,10);
+  if(v==null || !isFinite(v) || v===0 || v===base){ delete map[String(f.id)]; }
+  else { map[String(f.id)]={base:base, val:v}; }
+  saveOverrides(map);
+  render(); refreshSlateLabels(); refitAll();
+}
+function revertBout(b){
+  const map=loadOverrides();
+  for(const sk of ["fav","dog"]){ const f=b[sk]; if(f&&f.id!=null) delete map[String(f.id)]; }
+  saveOverrides(map);
+  render(); refreshSlateLabels(); refitAll();
+}
+function revertAllOdds(){ saveOverrides({}); render(); refreshSlateLabels(); refitAll(); }
 const SYS = ["FM","EloK","EloM","Glk","WHR","Model"];
 const BOOK_ABBR = {DraftKings:"DK",FanDuel:"FD",BetMGM:"MGM",Caesars:"CZR",Fanatics:"FAN",Bet365:"365",BetOnline:"BOL"};
 const BOOK_ORDER = ["DraftKings","FanDuel","BetMGM","Caesars","Fanatics","Bet365","BetOnline"];
@@ -571,9 +691,28 @@ function rankStrip(ranks){
 function oddsWrap(f, side){
   const ow=el("div","odds-wrap");
   const dk=f.dk, best=f.best, fm=f.fm_odds;
-  const primary = dk!=null ? dk : (fm!=null ? fm : best);
+  const base = baseOdds(f);               // PUBLISHED line
+  const primary = effOdds(f);             // EFFECTIVE line (override, else published)
+  const edited = hasOverride(f);
+  const oddsCls = side ? (side==="dog"?"pos":"neg") : ((primary!=null?primary:0)<0?"neg":"pos");
+  // "Adjust odds" mode: render an inline numeric input in place of the primary line.
+  if(EDIT_ODDS){
+    const inp=el("input","oddsedit");
+    inp.type="number"; inp.step="5"; inp.inputMode="numeric";
+    inp.value = primary!=null ? primary : "";
+    inp.placeholder = base!=null ? oddsStr(base) : "+/-";
+    inp.title = (base!=null ? "published "+oddsStr(base)+" — " : "no published line — ")
+              + "enter a what-if American price (blank / = published clears it)";
+    const commit=()=>{ const nv=inp.value.trim(); if((nv===""?null:parseInt(nv,10))!==(f._ovr!=null?f._ovr:base)) setFighterOverride(f, nv); };
+    inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); inp.blur(); } e.stopPropagation(); });
+    inp.addEventListener("click",e=>e.stopPropagation());
+    inp.addEventListener("change",commit);
+    inp.addEventListener("blur",commit);
+    ow.appendChild(inp);
+    return ow;
+  }
   if(primary==null){ ow.appendChild(el("span","best","no line")); return ow; }
-  if(dk!=null && best!=null && best!==dk){          // a different book beats DK
+  if(!edited && dk!=null && best!=null && best!==dk){   // a different book beats DK (hidden while overridden)
     const bk=BOOK_ABBR[f.best_book]||"";
     const s=el("span","best",'<span class="bk">best </span>'+oddsStr(best)+(bk?' <span class="bk">'+bk+'</span>':''));
     s.title="best available: "+oddsStr(best)+(f.best_book?" at "+f.best_book:"");
@@ -581,14 +720,17 @@ function oddsWrap(f, side){
   }
   // colour the moneyline by SLOT (favorite=green / underdog=purple), not by the
   // sign of the number -- so a pick'em underdog at -110 still reads as the dog.
-  const oddsCls = side ? (side==="dog"?"pos":"neg") : (primary<0?"neg":"pos");
-  const o=el("span","odds "+oddsCls,oddsStr(primary));
-  // name the actual source of the primary line (DraftKings for UFC; BetOnline for a
-  // non-UFC card priced off the BetOnline board) rather than always saying DraftKings.
-  const pbook = f.primary_book || (dk!=null?"DraftKings":(fm!=null?"reference":"best"));
-  o.title=pbook+" "+oddsStr(primary);
-  if(f.primary_book && f.primary_book!=="DraftKings"){
-    o.appendChild(el("span","bk src",' '+(BOOK_ABBR[f.primary_book]||f.primary_book)));
+  const o=el("span","odds "+oddsCls+(edited?" edited":""),oddsStr(primary));
+  if(edited){
+    o.title="manual — published "+(base!=null?oddsStr(base):"no line")+" (click ✎ Odds to change)";
+  } else {
+    // name the actual source of the primary line (DraftKings for UFC; BetOnline for a
+    // non-UFC card priced off the BetOnline board) rather than always saying DraftKings.
+    const pbook = f.primary_book || (dk!=null?"DraftKings":(fm!=null?"reference":"best"));
+    o.title=pbook+" "+oddsStr(primary);
+    if(f.primary_book && f.primary_book!=="DraftKings"){
+      o.appendChild(el("span","bk src",' '+(BOOK_ABBR[f.primary_book]||f.primary_book)));
+    }
   }
   ow.appendChild(o);
   return ow;
@@ -694,9 +836,11 @@ function pickBar(p, bout){
   d.title=p.thesis||"";
   const eslate=(p.edge_slate_pct||0), sslate=(p.slate_pct!=null?p.slate_pct:p.slate_alloc_pct);
   const evCls = p.ev_pct>0 ? "pos" : (p.ev_pct<0 ? "neg" : "zero");
+  const wf=p._whatif?" whatif":"";
+  const wfTip=p._whatif?" — recomputed at your what-if odds (not re-gated)":"";
   const stat='<span>P '+Math.round(p.prob*100)+'%</span>'
-    +'<span class="ev '+evCls+'">EV '+(p.ev_pct>=0?"+":"")+p.ev_pct+'%</span>'
-    +'<span class="slate" data-edge="'+eslate+'" data-slate="'+sslate+'" data-odds="'+(p.dk_odds!=null?p.dk_odds:'')+'" title="EDGE: literal Kelly-fraction stake (staking config) | SLATE: fully-invested MV share">'+slateLabel(p)+'</span>';
+    +'<span class="ev '+evCls+wf+'" title="expected value at '+oddsStr(p.dk_odds)+wfTip+'">EV '+(p.ev_pct>=0?"+":"")+p.ev_pct+'%</span>'
+    +'<span class="slate'+wf+'" data-edge="'+eslate+'" data-slate="'+sslate+'" data-odds="'+(p.dk_odds!=null?p.dk_odds:'')+'" title="EDGE: literal Kelly-fraction stake (staking config) | SLATE: fully-invested MV share'+wfTip+'">'+slateLabel(p)+'</span>';
   const colCls=pickColorCls(p, bout);
   const odds='<span class="o '+colCls+'">'+oddsStr(p.dk_odds)+'</span>';
   if(p.parlay){
@@ -1193,6 +1337,13 @@ function boutView(bout){
   const mid=el("div","mid");
   mid.appendChild(el("span","wt",(bout.weight||"")+""));
   mid.appendChild(el("span","tw","lbs"));
+  // per-fight revert: appears once either corner carries a manual odds override.
+  if(boutOverridden(bout)){
+    const rv=el("span","frevert","↺ odds");
+    rv.title="revert manual odds on this fight to the published lines";
+    rv.addEventListener("click",e=>{ e.stopPropagation(); revertBout(bout); });
+    mid.appendChild(rv);
+  }
   sum.appendChild(mid);
   sum.appendChild(halfView(bout.dog,"dog", side&&side===bout.dog.name, mask));
   b.appendChild(sum);
@@ -1241,6 +1392,9 @@ function boutView(bout){
 }
 
 function render(){
+  applyOverrides();                       // apply/prune browser-local odds what-ifs first
+  const revAll=document.getElementById("odds-revert-all");
+  if(revAll) revAll.hidden = !anyOverride();
   document.getElementById("ev-name").textContent = DATA.event?.name || "—";
   // date, then (event first-fight time when known) and where-to-watch, to the right.
   const _evt = DATA.event?.event_time ? " · "+DATA.event.event_time : "";
@@ -1296,6 +1450,13 @@ document.getElementById("mode-slate").addEventListener("click",()=>setBetMode("s
 document.getElementById("bankroll").addEventListener("input",e=>{
   BANKROLL=parseFloat(e.target.value)||0; refreshSlateLabels();
 });
+// ---- Adjust-odds (what-if) mode toggle + revert-all ----
+document.getElementById("odds-edit-toggle").addEventListener("click",()=>{
+  EDIT_ODDS=!EDIT_ODDS;
+  document.getElementById("odds-edit-toggle").classList.toggle("active",EDIT_ODDS);
+  render(); refreshSlateLabels(); refitAll();
+});
+document.getElementById("odds-revert-all").addEventListener("click",revertAllOdds);
 
 // ===================== RANKING PAGES + TOGGLE =====================
 const DIV_ORDER=["P4P","Heavyweight","Light Heavyweight","Middleweight","Welterweight",
