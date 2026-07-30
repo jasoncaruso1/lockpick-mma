@@ -240,10 +240,12 @@
     border:1px solid var(--line);background:transparent;color:#6a7180;cursor:pointer}
   .rrf-chip.on{color:#0b4a58;background:#7cc4d2;border-color:#7cc4d2}
   .rrf-chip.rrf-all{color:var(--fg);border-style:dashed}
-  #rrsearch{font:inherit;font-size:11px;padding:3px 10px;border-radius:999px;flex:0 1 210px;
-    min-width:120px;border:1px solid var(--line);background:transparent;color:var(--fg)}
-  #rrsearch::placeholder{color:#6a7180}
-  #rrsearch:focus{outline:none;border-color:#7cc4d2}
+  #rrsearch,.rrf-odd{font:inherit;font-size:11px;padding:3px 10px;border-radius:999px;
+    border:1px solid var(--line);background:transparent;color:var(--fg)}
+  #rrsearch{flex:0 1 210px;min-width:120px}
+  .rrf-odd{width:62px;text-align:center}
+  #rrsearch::placeholder,.rrf-odd::placeholder{color:#6a7180}
+  #rrsearch:focus,.rrf-odd:focus{outline:none;border-color:#7cc4d2}
   #rrtable .rrfn{cursor:pointer}
   #rrtable .rrfn:hover{color:#7cc4d2;text-decoration:underline dotted}
   #rrtable tr.rrhl td{background:rgba(124,196,210,.18)}
@@ -984,6 +986,13 @@ let _rrHL=null;                 // highlighted fight key; survives re-sorts
 let _rrTot={r:0,w:0};           // board totals for the header Risk/Win box
 let _rrPromoSel=null;           // promotion filter: null = ALL, else Set of tab labels
 let _rrSearch="";               // fighter search: substring vs EITHER leg's name
+let _rrOddsMin="", _rrOddsMax="";   // pair-odds range, American entry ("-300", "+150")
+// American entry -> decimal bound; null until it's a REAL price (|v| >= 100), so a
+// half-typed "-3" never filters the table mid-keystroke.
+function _rrOddsDec(s){
+  const v=parseFloat(String(s).replace(/^\+/,""));
+  return (isFinite(v)&&Math.abs(v)>=100)?amToDec(v):null;
+}
 function renderRR(){
   const box=document.getElementById("rrpage");
   const pairs=rrAllPairs().filter(pr=>rrStake(pr.p)>0);
@@ -1017,11 +1026,21 @@ function renderRR(){
   const promos=[...new Set(recs.flatMap(rc=>[rc.promo1,rc.promo2]).filter(Boolean))]
     .sort((a,b)=>((a in ord)?ord[a]:99)-((b in ord)?ord[b]:99)||a.localeCompare(b));
   const sel=_rrPromoSel, q=_rrSearch.trim().toLowerCase();
+  const dmin=_rrOddsDec(_rrOddsMin), dmax=_rrOddsDec(_rrOddsMax);   // pair parlay-odds range
   const shown=recs.filter(rc=>(sel==null||(sel.has(rc.promo1)&&sel.has(rc.promo2)))
-    &&(!q||rc.f1.toLowerCase().indexOf(q)>=0||rc.f2.toLowerCase().indexOf(q)>=0));
+    &&(!q||rc.f1.toLowerCase().indexOf(q)>=0||rc.f2.toLowerCase().indexOf(q)>=0)
+    &&(dmin==null||rc.odds>=dmin)&&(dmax==null||rc.odds<=dmax));
   const chips='<div id="rrfilter">'
     +'<input id="rrsearch" type="search" placeholder="Search fighter…" value="'
       +escapeHtml(_rrSearch).replace(/"/g,"&quot;")+'">'
+    +'<span class="rrf-lbl">Odds</span>'
+    +'<input id="rrodds-min" class="rrf-odd" type="text" inputmode="numeric" placeholder="Min"'
+      +' title="hide pairs shorter than this American price (e.g. -300)" value="'
+      +escapeHtml(_rrOddsMin).replace(/"/g,"&quot;")+'">'
+    +'<span class="rrf-lbl">to</span>'
+    +'<input id="rrodds-max" class="rrf-odd" type="text" inputmode="numeric" placeholder="Max"'
+      +' title="hide pairs longer than this American price (e.g. +150)" value="'
+      +escapeHtml(_rrOddsMax).replace(/"/g,"&quot;")+'">'
     +'<span class="rrf-lbl">Promotions</span>'
     +promos.map(p=>'<button class="rrf-chip'+((sel==null||sel.has(p))?' on':'')
       +'" data-promo="'+p+'" title="toggle '+p+' pairs">'+p+'</button>').join("")
@@ -1073,26 +1092,30 @@ function renderRR(){
     if(_rrPromoSel.size===promos.length) _rrPromoSel=null;   // everything on again
     renderRR();
   }));
-  // renderRR rebuilds the box's innerHTML, so the search input is recreated on every
+  // renderRR rebuilds the box's innerHTML, so the filter inputs are recreated on every
   // keystroke — capture the caret, re-render, then restore focus+caret by id.
-  const si=box.querySelector("#rrsearch");
-  if(si){
-    si.addEventListener("input",()=>{
-      _rrSearch=si.value; const pos=si.selectionStart;
+  [["rrsearch",v=>_rrSearch=v,()=>_rrSearch],
+   ["rrodds-min",v=>_rrOddsMin=v,()=>_rrOddsMin],
+   ["rrodds-max",v=>_rrOddsMax=v,()=>_rrOddsMax]].forEach(([id,set,get])=>{
+    const el=box.querySelector("#"+id);
+    if(!el) return;
+    el.addEventListener("input",()=>{
+      set(el.value); const pos=el.selectionStart;
       renderRR();
-      const el=document.getElementById("rrsearch");
-      if(el){ el.focus(); try{ el.setSelectionRange(pos,pos); }catch(e){} }
+      const n=document.getElementById(id);
+      if(n){ n.focus(); try{ n.setSelectionRange(pos,pos); }catch(e){} }
     });
-    si.addEventListener("keydown",e=>{
-      if(e.key==="Escape"&&_rrSearch){
-        _rrSearch=""; renderRR();
-        const el=document.getElementById("rrsearch"); if(el) el.focus();
+    el.addEventListener("keydown",e=>{
+      if(e.key==="Escape"&&get()){
+        set(""); renderRR();
+        const n=document.getElementById(id); if(n) n.focus();
       }
     });
-  }
+  });
   // clicking a fighter name = that fighter's pairs only, name filled into the search bar
+  // (promotion + odds-range filters reset so ALL of the fighter's pairs show)
   box.querySelectorAll("#rrtable .rrfn").forEach(b=>b.addEventListener("click",()=>{
-    _rrSearch=b.dataset.fn||""; _rrPromoSel=null; _rrHL=null; renderRR();
+    _rrSearch=b.dataset.fn||""; _rrPromoSel=null; _rrOddsMin=""; _rrOddsMax=""; _rrHL=null; renderRR();
   }));
   box.querySelectorAll("#rrtable th[data-key]").forEach(th=>th.addEventListener("click",()=>{
     const key=th.dataset.key;
@@ -1110,7 +1133,7 @@ function showRR(highlightKey){
   document.querySelectorAll(".navbtn").forEach(b=>b.classList.remove("active"));
   document.querySelectorAll(".cardtab").forEach(b=>b.classList.toggle("active",b.classList.contains("rrtab")));
   _rrHL=highlightKey||null;     // renderRR paints .rrhl inline, so it survives re-sorts
-  if(_rrHL){ _rrPromoSel=null; _rrSearch=""; }   // a banner click must never land on a filtered-out row
+  if(_rrHL){ _rrPromoSel=null; _rrSearch=""; _rrOddsMin=""; _rrOddsMax=""; }   // a banner click must never land on a filtered-out row
   renderRR();
   if(_rrHL){
     const first=document.querySelector("#rrtable tr.rrhl");
