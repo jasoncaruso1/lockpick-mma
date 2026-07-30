@@ -958,10 +958,6 @@ function rrBoutMap(){
   return _rrBoutMap;
 }
 function rrLegRec(l){ return rrBoutMap()[(l.event_id!=null?l.event_id:"?")+":"+(l.side_id!=null?l.side_id:"?")] || null; }
-function rrPairSort(pr){
-  const recs=(pr.p.legs||[]).map(rrLegRec).filter(Boolean);
-  return recs.length ? Math.min.apply(null, recs.map(r=>r.sort)) : Infinity;
-}
 function rrPairsForBout(eid, bout){
   const ids=[bout.fav&&bout.fav.id, bout.dog&&bout.dog.id].filter(x=>x!=null);
   return rrAllPairs().filter(pr=>(pr.p.legs||[]).some(l=>l.event_id===eid && ids.indexOf(l.side_id)>=0));
@@ -973,15 +969,16 @@ function rrStake(p){ return BET_MODE==="edge" ? (p.edge_slate_pct||0) : (p.slate
 // (a repeat click flips direction); TIME ASC is the universal secondary tiebreaker
 // whichever column is primary.
 const RR_COLS=[
-  {key:"time",  lbl:"Time",      dir:1},
+  {key:"time1", lbl:"Time",      dir:1},
   {key:"f1",    lbl:"Fighter 1", dir:1},
   {key:"promo1",lbl:"Promotion", dir:1},
+  {key:"time2", lbl:"Time",      dir:1},
   {key:"f2",    lbl:"Fighter 2", dir:1},
   {key:"promo2",lbl:"Promotion", dir:1},
   {key:"odds",  lbl:"Odds",      dir:1},
   {key:"risk",  lbl:"Risk",      dir:-1},
   {key:"win",   lbl:"Win",       dir:-1}];
-let _rrSort={key:"time",dir:1};
+let _rrSort={key:"time1",dir:1};
 let _rrHL=null;                 // highlighted fight key; survives re-sorts
 let _rrTot={r:0,w:0};           // board totals for the header Risk/Win box
 let _rrPromoSel=null;           // promotion filter: null = ALL, else Set of tab labels
@@ -1003,18 +1000,20 @@ function renderRR(){
     renderBetTotals(); return;
   }
   // one record per pair with every displayed value + sort key precomputed.
-  // `time` is a full DATETIME (minutes since epoch: event date + fight time),
-  // so Fri sorts before Sat regardless of clock time; the cell shows both halves.
+  // PER-LEG times (2026-07-30): time1/time2 are full DATETIMEs (minutes since epoch:
+  // event date + fight time), one per fighter column, so Fri sorts before Sat
+  // regardless of clock time; `time` (the earlier of the two) stays the universal tiebreak.
   const recs=pairs.map(pr=>{
     const p=pr.p, l1=p.legs[0], l2=p.legs[1]||{};
     const r1=rrLegRec(l1), r2=rrLegRec(l2);
-    const early=(r1&&r2)?(r1.sort<=r2.sort?r1:r2):(r1||r2);   // Time = the EARLIER leg
-    const t=rrPairSort(pr);
+    const ftOf=r=>r?((r.dt||"")+(r.ft?(r.dt?" · ":"")+r.ft:"")):"";
+    const s1=(r1&&r1.sort!=null&&r1.sort!==Infinity)?r1.sort:9e15;
+    const s2=(r2&&r2.sort!=null&&r2.sort!==Infinity)?r2.sort:9e15;
     const riskPct=rrStake(p), dec=amToDec(p.dk_odds)||1;
     return {l1:l1,l2:l2,riskPct:riskPct,dec:dec,po:p.dk_odds,
-      ft:early?((early.dt||"")+(early.ft?(early.dt?" · ":"")+early.ft:"")):"",
+      ft1:ftOf(r1), ft2:ftOf(r2),
       fids:[l1,l2].map(l=>(l.event_id||"?")+":"+(l.side_id||"?")).join(","),
-      time:(t==null||t===Infinity)?9e15:t,
+      time1:s1, time2:s2, time:Math.min(s1,s2),
       f1:String(l1.side||""), promo1:String((r1&&r1.tab)||l1.event||""),
       f2:String(l2.side||""), promo2:String((r2&&r2.tab)||l2.event||""),
       odds:dec, risk:riskPct, win:riskPct*(dec-1)};
@@ -1049,9 +1048,14 @@ function renderRR(){
   const k=_rrSort.key, dir=_rrSort.dir;
   shown.sort((a,b)=>{
     const va=a[k], vb=b[k];
-    const c=(typeof va==="string")?va.localeCompare(vb):(va<vb?-1:(va>vb?1:0));
+    let c=(typeof va==="string")?va.localeCompare(vb):(va<vb?-1:(va>vb?1:0));
     if(c) return c*dir;
-    return a.time<b.time?-1:(a.time>b.time?1:0);   // universal tiebreak: time asc
+    if(k==="time1"||k==="time2"){        // time sort: 2nd sort = the OTHER leg's time, SAME direction
+      const ok=(k==="time1")?"time2":"time1";
+      c=a[ok]<b[ok]?-1:(a[ok]>b[ok]?1:0);
+      if(c) return c*dir;
+    }
+    return a.time<b.time?-1:(a.time>b.time?1:0);   // universal tiebreak: earlier-leg time asc
   });
   let totR=0, totW=0;
   const rows=shown.map((rc,i)=>{
@@ -1061,9 +1065,10 @@ function renderRR(){
     return '<tr id="rrrow-'+i+'"'
       +(_rrHL&&rc.fids.split(",").indexOf(_rrHL)>=0?' class="rrhl"':'')
       +' data-fids="'+rc.fids+'">'
-      +'<td class="ftcell">'+rc.ft+'</td>'
+      +'<td class="ftcell">'+rc.ft1+'</td>'
       +'<td><b class="rrfn" data-fn="'+escapeHtml(rc.f1).replace(/"/g,"&quot;")
         +'" title="show only this fighter\'s pairs">'+(rc.l1.side||"?")+'</b> '+oddsStr(rc.l1.dk_odds)+'</td><td class="promo">'+rc.promo1+'</td>'
+      +'<td class="ftcell">'+rc.ft2+'</td>'
       +'<td><b class="rrfn" data-fn="'+escapeHtml(rc.f2).replace(/"/g,"&quot;")
         +'" title="show only this fighter\'s pairs">'+(rc.l2.side||"?")+'</b> '+oddsStr(rc.l2.dk_odds)+'</td><td class="promo">'+rc.promo2+'</td>'
       +'<td class="num">'+oddsStr(rc.po)+'</td>'
@@ -1079,7 +1084,7 @@ function renderRR(){
       ? '<div style="overflow-x:auto"><table id="rrtable">'
         +'<thead><tr>'+head+'</tr></thead>'
         +'<tbody>'+rows+'</tbody>'
-        +'<tfoot><tr><td colspan="6">'+cnt+'</td>'
+        +'<tfoot><tr><td colspan="7">'+cnt+'</td>'
         +'<td class="num">'+(BANKROLL>0?money(totR):totR.toFixed(2)+'%')+'</td>'
         +'<td class="num">'+(BANKROLL>0?money(totW):totW.toFixed(2)+'%')+'</td></tr></tfoot>'
         +'</table></div>'
