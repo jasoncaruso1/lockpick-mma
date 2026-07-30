@@ -1010,13 +1010,14 @@ function renderRR(){
       f2:String(l2.side||""), promo2:String((r2&&r2.tab)||l2.event||""),
       odds:dec, risk:riskPct, win:riskPct*(dec-1)};
   });
-  // ---- filters: fighter search (substring vs EITHER leg) AND promotion multiselect
-  //      (a pair shows when EITHER leg's promotion is on)
+  // ---- filters: fighter search (substring vs EITHER leg) AND promotion multiselect.
+  //      Promotion chips are EXCLUSIONARY (2026-07-30): deselecting a promotion hides
+  //      every pair touching it, so a pair shows only when BOTH legs' promotions are on.
   const ord={}; (__CARDS__||[]).forEach((c,i)=>{ ord[c.label||c.key]=i; });
   const promos=[...new Set(recs.flatMap(rc=>[rc.promo1,rc.promo2]).filter(Boolean))]
     .sort((a,b)=>((a in ord)?ord[a]:99)-((b in ord)?ord[b]:99)||a.localeCompare(b));
   const sel=_rrPromoSel, q=_rrSearch.trim().toLowerCase();
-  const shown=recs.filter(rc=>(sel==null||sel.has(rc.promo1)||sel.has(rc.promo2))
+  const shown=recs.filter(rc=>(sel==null||(sel.has(rc.promo1)&&sel.has(rc.promo2)))
     &&(!q||rc.f1.toLowerCase().indexOf(q)>=0||rc.f2.toLowerCase().indexOf(q)>=0));
   const chips='<div id="rrfilter">'
     +'<input id="rrsearch" type="search" placeholder="Search fighter…" value="'
