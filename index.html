@@ -240,6 +240,12 @@
     border:1px solid var(--line);background:transparent;color:#6a7180;cursor:pointer}
   .rrf-chip.on{color:#0b4a58;background:#7cc4d2;border-color:#7cc4d2}
   .rrf-chip.rrf-all{color:var(--fg);border-style:dashed}
+  #rrsearch{font:inherit;font-size:11px;padding:3px 10px;border-radius:999px;flex:0 1 210px;
+    min-width:120px;border:1px solid var(--line);background:transparent;color:var(--fg)}
+  #rrsearch::placeholder{color:#6a7180}
+  #rrsearch:focus{outline:none;border-color:#7cc4d2}
+  #rrtable .rrfn{cursor:pointer}
+  #rrtable .rrfn:hover{color:#7cc4d2;text-decoration:underline dotted}
   #rrtable tr.rrhl td{background:rgba(124,196,210,.18)}
   #rrtable tfoot td{font-weight:800;border-top:2px solid var(--line)}
   .rrnote{font-size:10px;color:#6a7180;margin:6px 0 10px}
@@ -970,12 +976,14 @@ const RR_COLS=[
   {key:"promo1",lbl:"Promotion", dir:1},
   {key:"f2",    lbl:"Fighter 2", dir:1},
   {key:"promo2",lbl:"Promotion", dir:1},
+  {key:"odds",  lbl:"Odds",      dir:1},
   {key:"risk",  lbl:"Risk",      dir:-1},
   {key:"win",   lbl:"Win",       dir:-1}];
 let _rrSort={key:"time",dir:1};
 let _rrHL=null;                 // highlighted fight key; survives re-sorts
 let _rrTot={r:0,w:0};           // board totals for the header Risk/Win box
 let _rrPromoSel=null;           // promotion filter: null = ALL, else Set of tab labels
+let _rrSearch="";               // fighter search: substring vs EITHER leg's name
 function renderRR(){
   const box=document.getElementById("rrpage");
   const pairs=rrAllPairs().filter(pr=>rrStake(pr.p)>0);
@@ -994,21 +1002,26 @@ function renderRR(){
     const early=(r1&&r2)?(r1.sort<=r2.sort?r1:r2):(r1||r2);   // Time = the EARLIER leg
     const t=rrPairSort(pr);
     const riskPct=rrStake(p), dec=amToDec(p.dk_odds)||1;
-    return {l1:l1,l2:l2,riskPct:riskPct,dec:dec,
+    return {l1:l1,l2:l2,riskPct:riskPct,dec:dec,po:p.dk_odds,
       ft:early?((early.dt||"")+(early.ft?(early.dt?" · ":"")+early.ft:"")):"",
       fids:[l1,l2].map(l=>(l.event_id||"?")+":"+(l.side_id||"?")).join(","),
       time:(t==null||t===Infinity)?9e15:t,
       f1:String(l1.side||""), promo1:String((r1&&r1.tab)||l1.event||""),
       f2:String(l2.side||""), promo2:String((r2&&r2.tab)||l2.event||""),
-      risk:riskPct, win:riskPct*(dec-1)};
+      odds:dec, risk:riskPct, win:riskPct*(dec-1)};
   });
-  // ---- promotion multiselect filter (a pair shows when EITHER leg's promotion is on)
+  // ---- filters: fighter search (substring vs EITHER leg) AND promotion multiselect
+  //      (a pair shows when EITHER leg's promotion is on)
   const ord={}; (__CARDS__||[]).forEach((c,i)=>{ ord[c.label||c.key]=i; });
   const promos=[...new Set(recs.flatMap(rc=>[rc.promo1,rc.promo2]).filter(Boolean))]
     .sort((a,b)=>((a in ord)?ord[a]:99)-((b in ord)?ord[b]:99)||a.localeCompare(b));
-  const sel=_rrPromoSel;
-  const shown=(sel==null)?recs:recs.filter(rc=>sel.has(rc.promo1)||sel.has(rc.promo2));
-  const chips='<div id="rrfilter"><span class="rrf-lbl">Promotions</span>'
+  const sel=_rrPromoSel, q=_rrSearch.trim().toLowerCase();
+  const shown=recs.filter(rc=>(sel==null||sel.has(rc.promo1)||sel.has(rc.promo2))
+    &&(!q||rc.f1.toLowerCase().indexOf(q)>=0||rc.f2.toLowerCase().indexOf(q)>=0));
+  const chips='<div id="rrfilter">'
+    +'<input id="rrsearch" type="search" placeholder="Search fighter…" value="'
+      +escapeHtml(_rrSearch).replace(/"/g,"&quot;")+'">'
+    +'<span class="rrf-lbl">Promotions</span>'
     +promos.map(p=>'<button class="rrf-chip'+((sel==null||sel.has(p))?' on':'')
       +'" data-promo="'+p+'" title="toggle '+p+' pairs">'+p+'</button>').join("")
     +(sel!=null?'<button class="rrf-chip rrf-all" data-promo="__all__" title="show every promotion">All</button>':'')
@@ -1029,8 +1042,11 @@ function renderRR(){
       +(_rrHL&&rc.fids.split(",").indexOf(_rrHL)>=0?' class="rrhl"':'')
       +' data-fids="'+rc.fids+'">'
       +'<td class="ftcell">'+rc.ft+'</td>'
-      +'<td><b>'+(rc.l1.side||"?")+'</b> '+oddsStr(rc.l1.dk_odds)+'</td><td class="promo">'+rc.promo1+'</td>'
-      +'<td><b>'+(rc.l2.side||"?")+'</b> '+oddsStr(rc.l2.dk_odds)+'</td><td class="promo">'+rc.promo2+'</td>'
+      +'<td><b class="rrfn" data-fn="'+escapeHtml(rc.f1).replace(/"/g,"&quot;")
+        +'" title="show only this fighter\'s pairs">'+(rc.l1.side||"?")+'</b> '+oddsStr(rc.l1.dk_odds)+'</td><td class="promo">'+rc.promo1+'</td>'
+      +'<td><b class="rrfn" data-fn="'+escapeHtml(rc.f2).replace(/"/g,"&quot;")
+        +'" title="show only this fighter\'s pairs">'+(rc.l2.side||"?")+'</b> '+oddsStr(rc.l2.dk_odds)+'</td><td class="promo">'+rc.promo2+'</td>'
+      +'<td class="num">'+oddsStr(rc.po)+'</td>'
       +'<td class="num">'+(risk!=null?money(risk):rc.riskPct.toFixed(2)+'%')+'</td>'
       +'<td class="num">'+(winv!=null?money(winv):(rc.riskPct*(rc.dec-1)).toFixed(2)+'%')+'</td></tr>';
   }).join("");
@@ -1043,11 +1059,11 @@ function renderRR(){
       ? '<div style="overflow-x:auto"><table id="rrtable">'
         +'<thead><tr>'+head+'</tr></thead>'
         +'<tbody>'+rows+'</tbody>'
-        +'<tfoot><tr><td colspan="5">'+cnt+'</td>'
+        +'<tfoot><tr><td colspan="6">'+cnt+'</td>'
         +'<td class="num">'+(BANKROLL>0?money(totR):totR.toFixed(2)+'%')+'</td>'
         +'<td class="num">'+(BANKROLL>0?money(totW):totW.toFixed(2)+'%')+'</td></tr></tfoot>'
         +'</table></div>'
-      : '<p class="subtle">No pairs match the selected promotions ('+recs.length+' hidden).</p>');
+      : '<p class="subtle">No pairs match the current filters ('+recs.length+' hidden).</p>');
   box.querySelectorAll("#rrfilter .rrf-chip").forEach(b=>b.addEventListener("click",()=>{
     const p=b.dataset.promo;
     if(p==="__all__"){ _rrPromoSel=null; renderRR(); return; }
@@ -1055,6 +1071,27 @@ function renderRR(){
     if(_rrPromoSel.has(p)) _rrPromoSel.delete(p); else _rrPromoSel.add(p);
     if(_rrPromoSel.size===promos.length) _rrPromoSel=null;   // everything on again
     renderRR();
+  }));
+  // renderRR rebuilds the box's innerHTML, so the search input is recreated on every
+  // keystroke — capture the caret, re-render, then restore focus+caret by id.
+  const si=box.querySelector("#rrsearch");
+  if(si){
+    si.addEventListener("input",()=>{
+      _rrSearch=si.value; const pos=si.selectionStart;
+      renderRR();
+      const el=document.getElementById("rrsearch");
+      if(el){ el.focus(); try{ el.setSelectionRange(pos,pos); }catch(e){} }
+    });
+    si.addEventListener("keydown",e=>{
+      if(e.key==="Escape"&&_rrSearch){
+        _rrSearch=""; renderRR();
+        const el=document.getElementById("rrsearch"); if(el) el.focus();
+      }
+    });
+  }
+  // clicking a fighter name = that fighter's pairs only, name filled into the search bar
+  box.querySelectorAll("#rrtable .rrfn").forEach(b=>b.addEventListener("click",()=>{
+    _rrSearch=b.dataset.fn||""; _rrPromoSel=null; _rrHL=null; renderRR();
   }));
   box.querySelectorAll("#rrtable th[data-key]").forEach(th=>th.addEventListener("click",()=>{
     const key=th.dataset.key;
@@ -1072,7 +1109,7 @@ function showRR(highlightKey){
   document.querySelectorAll(".navbtn").forEach(b=>b.classList.remove("active"));
   document.querySelectorAll(".cardtab").forEach(b=>b.classList.toggle("active",b.classList.contains("rrtab")));
   _rrHL=highlightKey||null;     // renderRR paints .rrhl inline, so it survives re-sorts
-  if(_rrHL) _rrPromoSel=null;   // a banner click must never land on a filtered-out row
+  if(_rrHL){ _rrPromoSel=null; _rrSearch=""; }   // a banner click must never land on a filtered-out row
   renderRR();
   if(_rrHL){
     const first=document.querySelector("#rrtable tr.rrhl");
