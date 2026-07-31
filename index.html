@@ -275,6 +275,15 @@
   #alltable th.grp{text-align:center;color:#8a909c}
   #alltable .grpL{border-left:2px solid var(--line)}
   #alltable tfoot td{font-weight:800;border-top:2px solid var(--line)}
+  /* STICKY HEADERS (RR + All): the table scrolls inside its own box (.rrscroll is a
+     BOTH-axis scroll container) so th can pin to the box top; th need an opaque
+     background, and the collapsed border is faked with a box-shadow because real
+     borders don't travel with sticky cells. All's row-2 `top` is set by JS to the
+     measured row-1 height (rowspan/group heights aren't knowable in static CSS). */
+  .rrscroll{overflow:auto;max-height:max(340px,calc(100vh - 185px))}
+  #rrtable thead th,#alltable thead th{position:sticky;top:0;z-index:3;
+    background:var(--bg);box-shadow:0 1px 0 var(--line)}
+  #alltable thead tr:nth-child(2) th{z-index:2}
   /* DK prop menu row (expanded) */
   .bout.open .history .props{display:flex;flex-wrap:wrap;gap:3px 14px;
     padding:3px 8px;font-size:9px;color:var(--dim);border-bottom:1px solid var(--line);background:#0f1115}
@@ -1189,7 +1198,7 @@ function renderRR(){
   const cnt=shown.length+(shown.length!==recs.length?' of '+recs.length:'')+' pairs';
   box.innerHTML=chips
     +(shown.length
-      ? '<div style="overflow-x:auto"><table id="rrtable">'
+      ? '<div class="rrscroll"><table id="rrtable">'
         +'<thead><tr>'+head+'</tr></thead>'
         +'<tbody>'+rows+'</tbody>'
         +'<tfoot><tr><td colspan="8">'+cnt+'</td>'
@@ -1401,10 +1410,18 @@ function renderAll(){
     +'<td class="num">'+unit(rc.al_w)+'</td>'
     +'<td class="num grpL">'+unit(rc.imp)+'</td></tr>').join("");
   box.innerHTML=bar
-    +'<div style="overflow-x:auto"><table id="alltable">'
+    +'<div class="rrscroll"><table id="alltable">'
     +'<thead>'+h1+h2+'</thead><tbody>'+body+'</tbody>'
     +'<tfoot><tr><td colspan="17">'+rows.length+' fighters</td></tr></tfoot>'
     +'</table></div>';
+  // pin the second header row just below the first (measured -- rowspan cells make
+  // the first row's height unknowable in static CSS)
+  const hr1=box.querySelector("#alltable thead tr");
+  if(hr1){
+    const h=Math.round(hr1.getBoundingClientRect().height);
+    if(h>0) box.querySelectorAll("#alltable thead tr:nth-child(2) th")
+      .forEach(t=>{ t.style.top=h+"px"; });
+  }
   box.querySelectorAll("#alltable th[data-key]").forEach(th=>th.addEventListener("click",()=>{
     const key=th.dataset.key;
     if(_allSort.key===key) _allSort.dir*=-1;
