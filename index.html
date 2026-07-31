@@ -259,6 +259,22 @@
   #rrtable tr.rrhl td{background:rgba(124,196,210,.18)}
   #rrtable tfoot td{font-weight:800;border-top:2px solid var(--line)}
   .rrnote{font-size:10px;color:#6a7180;margin:6px 0 10px}
+  /* ALL page (per-fighter exposure) -- shares the RR table look, gold accent tab */
+  .alltab{color:var(--gold) !important}
+  .alltab.active{color:#0b0d10 !important;background:var(--gold) !important}
+  #alltable{width:100%;border-collapse:collapse;font-size:11px}
+  #alltable th{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#6a7180;
+    text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  #alltable td{padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap;
+    font-variant-numeric:tabular-nums}
+  #alltable td.num{text-align:right}
+  #alltable .promo{color:#6a7180;font-size:9px;text-transform:uppercase}
+  #alltable .ftcell{color:#6a7180;font-size:10px}
+  #alltable th.rr-sorth{cursor:pointer}
+  #alltable th.rr-sorth:hover,#alltable th.rr-sorton{color:var(--fg)}
+  #alltable th.grp{text-align:center;color:#8a909c}
+  #alltable .grpL{border-left:2px solid var(--line)}
+  #alltable tfoot td{font-weight:800;border-top:2px solid var(--line)}
   /* DK prop menu row (expanded) */
   .bout.open .history .props{display:flex;flex-wrap:wrap;gap:3px 14px;
     padding:3px 8px;font-size:9px;color:var(--dim);border-bottom:1px solid var(--line);background:#0f1115}
@@ -603,6 +619,15 @@
       ordered by first fight time. EDGE and SLATE size the board differently: EDGE is the tuned
       Kelly book; SLATE gives each pair its share of the fully-invested slate allocation.</p>
     <div id="rrpage"></div>
+  </section>
+
+  <section id="view-all" class="view" hidden>
+    <h1 class="vtitle">All Bets</h1>
+    <p class="rrnote">Every fighter carrying action — the straight bet, their round-robin membership, and the
+      combined book, in the current EDGE/SLATE mode. A group's Prob is the chance its FULL payout lands
+      (for Round Robin: the fighter and every paired partner win). Imp = total money in motion — Risk + Win
+      summed across all three groups.</p>
+    <div id="allpage"></div>
   </section>
 </div>
 
@@ -1254,7 +1279,7 @@ function renderRR(){
 }
 function showRR(highlightKey){
   _activeView="rr";
-  for(const id of ["view-card","view-fighters","view-promos"]) document.getElementById(id).hidden=true;
+  for(const id of ["view-card","view-fighters","view-promos","view-all"]) document.getElementById(id).hidden=true;
   document.getElementById("view-rr").hidden=false;
   document.querySelectorAll(".navbtn").forEach(b=>b.classList.remove("active"));
   document.querySelectorAll(".cardtab").forEach(b=>b.classList.toggle("active",b.classList.contains("rrtab")));
@@ -1265,6 +1290,145 @@ function showRR(highlightKey){
     const first=document.querySelector("#rrtable tr.rrhl");
     if(first) first.scrollIntoView({behavior:"smooth",block:"center"});
   }
+}
+// ---- ALL page: one row per fighter with ANY exposure (straight bet or RR member) ----
+// Base [Promo TV Time Fighter Odds Opponent Prob], then three parent groups
+// [Straight Bet | Round Robin | All] x [Prob E[X] Risk Win], then Imp (no parent) =
+// Risk+Win summed across all six group Risk/Win columns (three Risk + three Win).
+// A group's Prob = the chance its FULL payout lands (RR: fighter AND every partner
+// win; All: the straight bet's own prob stands in for the fighter outcome — a
+// method prop implies the win). Odds inherit the event screens via effOdds.
+const ALL_BASE=[
+  {key:"promo",  lbl:"Promo",   dir:1},
+  {key:"tv",     lbl:"TV",      dir:1},
+  {key:"time",   lbl:"Time",    dir:1},
+  {key:"fighter",lbl:"Fighter", dir:1},
+  {key:"odds",   lbl:"Odds",    dir:1},
+  {key:"opp",    lbl:"Opponent",dir:1},
+  {key:"prob",   lbl:"Prob",    dir:-1}];
+const ALL_SUB=[["p","Prob"],["e","E[X]"],["r","Risk"],["w","Win"]];
+const ALL_GRPS=[["sb","Straight Bet"],["rr","Round Robin"],["al","All"]];
+const ALL_DIRS={}; ALL_BASE.forEach(c=>ALL_DIRS[c.key]=c.dir);
+ALL_GRPS.forEach(([g])=>ALL_SUB.forEach(([sk])=>ALL_DIRS[g+"_"+sk]=-1)); ALL_DIRS.imp=-1;
+let _allSort={key:"time",dir:1};
+function renderAll(){
+  const box=document.getElementById("allpage");
+  const cards=__CARDS__||[{label:DATA.event?.name||"",data:__PAYLOAD__}];
+  const rows=[];
+  cards.forEach(c=>{
+    const ev=c.data.event||{}, eid=ev.id;
+    (c.data.bouts||[]).forEach(b=>{
+      [[b.fav,b.dog,true],[b.dog,b.fav,false]].forEach(([s,o,isFav])=>{
+        if(!s||s.id==null) return;
+        const rec=rrBoutMap()[eid+":"+s.id]||null;
+        const fp=(b.model_fav!=null)?(isFav?b.model_fav/100:1-b.model_fav/100):null;
+        // straight bet on THIS fighter in the current mode (agnostic props have no side)
+        const pk=b.pick;
+        const mine=(pk&&!pk.winner_agnostic&&pk.side===s.name)?pk:null;
+        const st=mine?(BET_MODE==="edge"?(mine.edge_slate_pct||0):(mine.slate_pct||0)):0;
+        const sbD=st>0?(amToDec(mine.dk_odds)||1):null;
+        const sbP=(st>0&&mine.prob!=null)?mine.prob:null;
+        const sbR=st>0?st:0, sbW=st>0?st*(sbD-1):0;
+        const sbE=(st>0&&sbP!=null)?st*(sbP*sbD-1):null;
+        // RR membership across the whole board (current mode, inherited pair odds)
+        let rrR=0,rrW=0,rrE=0,own=null,part=null;
+        rrAllPairs().forEach(pr=>{
+          const legs=pr.p.legs||[];
+          const ml=legs.find(l=>l.event_id===eid&&l.side_id===s.id);
+          if(!ml) return;
+          const stk=rrStake(pr.p); if(stk<=0) return;
+          const dec=rrPairDec(pr.p);
+          rrR+=stk; rrW+=stk*(dec-1); rrE+=stk*((pr.p.prob||0)*dec-1);
+          if(own==null&&ml.prob!=null) own=ml.prob;
+          const ol=legs.find(l=>l!==ml);
+          if(ol&&ol.prob!=null) part=(part==null?1:part)*ol.prob;
+        });
+        if(st<=0&&rrR<=0) return;   // no exposure -> no row
+        const rrP=(rrR>0&&own!=null)?own*(part!=null?part:1):null;
+        const alR=sbR+rrR, alW=sbW+rrW;
+        const alE=(sbE!=null||rrR>0)?((sbE||0)+rrE):null;
+        const alP=(st>0&&rrR>0)?((sbP!=null&&part!=null)?sbP*part:null)
+                 :(st>0?sbP:rrP);
+        const imp=sbR+sbW+rrR+rrW+alR+alW;
+        rows.push({promo:String(c.label||c.key||""),
+          tv:String(b.watch_abbr||b.watch||ev.broadcast_abbr||ev.broadcast||""),
+          time:rec?rec.sort:9e15,
+          tlbl:rec?((rec.dt||"")+(rec.ft?(rec.dt?" · ":"")+rec.ft:"")):"",
+          fighter:String(s.name||""), oddsAm:effOdds(s), odds:amToDec(effOdds(s))||9e9,
+          opp:String((o&&o.name)||""), prob:(fp!=null?fp:-1),
+          sb_p:(sbP!=null?sbP:-1), sb_e:(sbE!=null?sbE:-9e15), sb_r:sbR, sb_w:sbW, hasSB:st>0,
+          rr_p:(rrP!=null?rrP:-1), rr_e:(rrR>0?rrE:-9e15), rr_r:rrR, rr_w:rrW, hasRR:rrR>0,
+          al_p:(alP!=null?alP:-1), al_e:(alE!=null?alE:-9e15), al_r:alR, al_w:alW,
+          imp:imp});
+      });
+    });
+  });
+  if(!rows.length){
+    box.innerHTML='<p class="subtle">No bets are in play in '+(BET_MODE==="edge"?"EDGE":"SLATE")+' mode.</p>';
+    return;
+  }
+  const k=_allSort.key, dir=_allSort.dir;
+  rows.sort((a,b)=>{
+    const va=a[k], vb=b[k];
+    let cc=(typeof va==="string")?va.localeCompare(vb):(va<vb?-1:(va>vb?1:0));
+    if(cc) return cc*dir;
+    cc=a.time<b.time?-1:(a.time>b.time?1:0);           // tiebreak: time asc, then fighter
+    return cc||a.fighter.localeCompare(b.fighter);
+  });
+  const unit=x=>BANKROLL>0?money(BANKROLL*x/100):x.toFixed(2)+"%";
+  const pv=v=>(v!=null&&v>=0)?(v*100).toFixed(1)+"%":"";
+  const evc=v=>(v<=-9e14)?"":unit(v);
+  const sortMark=key=>(k===key?(dir>0?" ▲":" ▼"):"");
+  const h1='<tr>'+ALL_BASE.map(c=>'<th rowspan="2" class="rr-sorth'+(k===c.key?' rr-sorton':'')
+      +'" data-key="'+c.key+'" title="click to sort by '+c.lbl+'">'+c.lbl+sortMark(c.key)+'</th>').join("")
+    +ALL_GRPS.map(([g,lbl])=>'<th colspan="4" class="grp grpL">'+lbl+'</th>').join("")
+    +'<th rowspan="2" class="rr-sorth grpL'+(k==="imp"?' rr-sorton':'')
+      +'" data-key="imp" title="Risk + Win summed across all three groups">Imp'+sortMark("imp")+'</th></tr>';
+  const h2='<tr>'+ALL_GRPS.map(([g])=>ALL_SUB.map(([sk,sl],si)=>{
+      const key=g+"_"+sk;
+      return '<th class="rr-sorth'+(si===0?' grpL':'')+(k===key?' rr-sorton':'')
+        +'" data-key="'+key+'">'+sl+sortMark(key)+'</th>';
+    }).join("")).join("")+'</tr>';
+  const body=rows.map(rc=>'<tr>'
+    +'<td class="promo">'+rc.promo+'</td>'
+    +'<td class="ftcell">'+escapeHtml(rc.tv)+'</td>'
+    +'<td class="ftcell">'+rc.tlbl+'</td>'
+    +'<td><b>'+escapeHtml(rc.fighter)+'</b></td>'
+    +'<td class="num">'+oddsStr(rc.oddsAm)+'</td>'
+    +'<td>'+escapeHtml(rc.opp)+'</td>'
+    +'<td class="num">'+pv(rc.prob)+'</td>'
+    +'<td class="num grpL">'+pv(rc.sb_p)+'</td>'
+    +'<td class="num">'+evc(rc.sb_e)+'</td>'
+    +'<td class="num">'+(rc.hasSB?unit(rc.sb_r):"")+'</td>'
+    +'<td class="num">'+(rc.hasSB?unit(rc.sb_w):"")+'</td>'
+    +'<td class="num grpL">'+pv(rc.rr_p)+'</td>'
+    +'<td class="num">'+(rc.hasRR?evc(rc.rr_e):"")+'</td>'
+    +'<td class="num">'+(rc.hasRR?unit(rc.rr_r):"")+'</td>'
+    +'<td class="num">'+(rc.hasRR?unit(rc.rr_w):"")+'</td>'
+    +'<td class="num grpL">'+pv(rc.al_p)+'</td>'
+    +'<td class="num">'+evc(rc.al_e)+'</td>'
+    +'<td class="num">'+unit(rc.al_r)+'</td>'
+    +'<td class="num">'+unit(rc.al_w)+'</td>'
+    +'<td class="num grpL">'+unit(rc.imp)+'</td></tr>').join("");
+  box.innerHTML='<div style="overflow-x:auto"><table id="alltable">'
+    +'<thead>'+h1+h2+'</thead><tbody>'+body+'</tbody>'
+    +'<tfoot><tr><td colspan="20">'+rows.length+' fighters</td></tr></tfoot>'
+    +'</table></div>';
+  box.querySelectorAll("#alltable th[data-key]").forEach(th=>th.addEventListener("click",()=>{
+    const key=th.dataset.key;
+    if(_allSort.key===key) _allSort.dir*=-1;
+    else _allSort={key:key,dir:(ALL_DIRS[key]!=null?ALL_DIRS[key]:1)};
+    renderAll();
+  }));
+}
+function showAll(){
+  _activeView="all";
+  for(const id of ["view-card","view-fighters","view-promos","view-rr"]) document.getElementById(id).hidden=true;
+  document.getElementById("view-all").hidden=false;
+  document.querySelectorAll(".navbtn").forEach(b=>b.classList.remove("active"));
+  document.querySelectorAll(".cardtab").forEach(b=>b.classList.toggle("active",b.classList.contains("alltab")));
+  renderAll();
+  renderBetTotals();
 }
 // aggregated RR-member banner: this fight's TOTAL risk/win across its pairs + the
 // EV of its inclusion; click -> its slots on the Round Robin page.
@@ -1895,6 +2059,7 @@ render();
 function refreshSlateLabels(){
   const edge=BET_MODE==="edge";
   if(_activeView==="rr") renderRR();       // RR table shows $ when a bankroll is set
+  if(_activeView==="all") renderAll();     // All table re-monies / re-modes the same way
   // RR-member banners re-money from their data attrs (no full re-render needed)
   document.querySelectorAll(".pickbar.rrmem .slate[data-rrpct]").forEach(s=>{
     const pct=parseFloat(s.dataset.rrpct)||0, wp=parseFloat(s.dataset.rrwinpct)||0;
@@ -2169,7 +2334,7 @@ function renderPromos(){
 let _builtF=false,_builtP=false,_activeView="card";
 function showView(v){
   _activeView=v;
-  for(const [name,id] of [["card","view-card"],["fighters","view-fighters"],["promos","view-promos"],["rr","view-rr"]])
+  for(const [name,id] of [["card","view-card"],["fighters","view-fighters"],["promos","view-promos"],["rr","view-rr"],["all","view-all"]])
     document.getElementById(id).hidden = (name!==v);
   document.querySelectorAll(".navbtn").forEach(b=>b.classList.toggle("active",b.dataset.view===v));
   if(v==="fighters"&&!_builtF){ renderFighters(); _builtF=true; }
@@ -2183,7 +2348,7 @@ document.querySelectorAll(".navbtn").forEach(b=>b.addEventListener("click",()=>s
 // Switching a tab swaps the active card's DATA and re-renders whatever sub-view is
 // open (Card / Fighter Rankings / Promotion Rankings), preserving the EDGE/SLATE mode.
 function switchCard(i){
-  if(_activeView==="rr") showView("card");   // leaving the RR page for a card tab
+  if(_activeView==="rr"||_activeView==="all") showView("card");   // leaving the RR/All page for a card tab
   DATA = __CARDS__[i].data;
   document.querySelectorAll(".cardtab").forEach((b,j)=>b.classList.toggle("active",j===i));
   _builtF=false; _builtP=false;
@@ -2209,6 +2374,15 @@ if(__CARDS__){
     b.textContent="RR";
     b.title="Round Robin board: every two-leg pair across the weekend's cards";
     b.addEventListener("click",()=>showRR());
+    bar.appendChild(b);
+  }
+  // ALL tab -- every fighter's total exposure (straight + RR) across the weekend
+  {
+    const b=document.createElement("button");
+    b.className="cardtab alltab";
+    b.textContent="All";
+    b.title="All bets: every fighter's straight-bet + round-robin exposure";
+    b.addEventListener("click",()=>showAll());
     bar.appendChild(b);
   }
 }
