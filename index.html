@@ -624,9 +624,8 @@
   <section id="view-all" class="view" hidden>
     <h1 class="vtitle">All Bets</h1>
     <p class="rrnote">Every fighter carrying action — the straight bet, their round-robin membership, and the
-      combined book, in the current EDGE/SLATE mode. A group's Prob is the chance its FULL payout lands
-      (for Round Robin: the fighter and every paired partner win). Imp = total money in motion — Risk + Win
-      summed across all three groups.</p>
+      combined book, in the current EDGE/SLATE mode. Prob is the fighter's model win probability.
+      Imp = total money in motion — Risk + Win summed across all three groups.</p>
     <div id="allpage"></div>
   </section>
 </div>
@@ -1292,12 +1291,10 @@ function showRR(highlightKey){
   }
 }
 // ---- ALL page: one row per fighter with ANY exposure (straight bet or RR member) ----
-// Base [Promo TV Time Fighter Odds Opponent Prob], then three parent groups
-// [Straight Bet | Round Robin | All] x [Prob E[X] Risk Win], then Imp (no parent) =
-// Risk+Win summed across all six group Risk/Win columns (three Risk + three Win).
-// A group's Prob = the chance its FULL payout lands (RR: fighter AND every partner
-// win; All: the straight bet's own prob stands in for the fighter outcome — a
-// method prop implies the win). Odds inherit the event screens via effOdds.
+// Base [Promo TV Time Fighter Odds Opponent Prob] (Prob = the fighter's model win%,
+// the ONE prob column), then three parent groups [Straight Bet | Round Robin | All]
+// x [E[X] Risk Win], then Imp (no parent) = Risk+Win summed across all six group
+// Risk/Win columns (three Risk + three Win). Odds inherit the event screens via effOdds.
 const ALL_BASE=[
   {key:"promo",  lbl:"Promo",   dir:1},
   {key:"tv",     lbl:"TV",      dir:1},
@@ -1306,7 +1303,7 @@ const ALL_BASE=[
   {key:"odds",   lbl:"Odds",    dir:1},
   {key:"opp",    lbl:"Opponent",dir:1},
   {key:"prob",   lbl:"Prob",    dir:-1}];
-const ALL_SUB=[["p","Prob"],["e","E[X]"],["r","Risk"],["w","Win"]];
+const ALL_SUB=[["e","E[X]"],["r","Risk"],["w","Win"]];
 const ALL_GRPS=[["sb","Straight Bet"],["rr","Round Robin"],["al","All"]];
 const ALL_DIRS={}; ALL_BASE.forEach(c=>ALL_DIRS[c.key]=c.dir);
 ALL_GRPS.forEach(([g])=>ALL_SUB.forEach(([sk])=>ALL_DIRS[g+"_"+sk]=-1)); ALL_DIRS.imp=-1;
@@ -1331,7 +1328,7 @@ function renderAll(){
         const sbR=st>0?st:0, sbW=st>0?st*(sbD-1):0;
         const sbE=(st>0&&sbP!=null)?st*(sbP*sbD-1):null;
         // RR membership across the whole board (current mode, inherited pair odds)
-        let rrR=0,rrW=0,rrE=0,own=null,part=null;
+        let rrR=0,rrW=0,rrE=0;
         rrAllPairs().forEach(pr=>{
           const legs=pr.p.legs||[];
           const ml=legs.find(l=>l.event_id===eid&&l.side_id===s.id);
@@ -1339,16 +1336,10 @@ function renderAll(){
           const stk=rrStake(pr.p); if(stk<=0) return;
           const dec=rrPairDec(pr.p);
           rrR+=stk; rrW+=stk*(dec-1); rrE+=stk*((pr.p.prob||0)*dec-1);
-          if(own==null&&ml.prob!=null) own=ml.prob;
-          const ol=legs.find(l=>l!==ml);
-          if(ol&&ol.prob!=null) part=(part==null?1:part)*ol.prob;
         });
         if(st<=0&&rrR<=0) return;   // no exposure -> no row
-        const rrP=(rrR>0&&own!=null)?own*(part!=null?part:1):null;
         const alR=sbR+rrR, alW=sbW+rrW;
         const alE=(sbE!=null||rrR>0)?((sbE||0)+rrE):null;
-        const alP=(st>0&&rrR>0)?((sbP!=null&&part!=null)?sbP*part:null)
-                 :(st>0?sbP:rrP);
         const imp=sbR+sbW+rrR+rrW+alR+alW;
         rows.push({promo:String(c.label||c.key||""),
           tv:String(b.watch_abbr||b.watch||ev.broadcast_abbr||ev.broadcast||""),
@@ -1356,9 +1347,9 @@ function renderAll(){
           tlbl:rec?((rec.dt||"")+(rec.ft?(rec.dt?" · ":"")+rec.ft:"")):"",
           fighter:String(s.name||""), oddsAm:effOdds(s), odds:amToDec(effOdds(s))||9e9,
           opp:String((o&&o.name)||""), prob:(fp!=null?fp:-1),
-          sb_p:(sbP!=null?sbP:-1), sb_e:(sbE!=null?sbE:-9e15), sb_r:sbR, sb_w:sbW, hasSB:st>0,
-          rr_p:(rrP!=null?rrP:-1), rr_e:(rrR>0?rrE:-9e15), rr_r:rrR, rr_w:rrW, hasRR:rrR>0,
-          al_p:(alP!=null?alP:-1), al_e:(alE!=null?alE:-9e15), al_r:alR, al_w:alW,
+          sb_e:(sbE!=null?sbE:-9e15), sb_r:sbR, sb_w:sbW, hasSB:st>0,
+          rr_e:(rrR>0?rrE:-9e15), rr_r:rrR, rr_w:rrW, hasRR:rrR>0,
+          al_e:(alE!=null?alE:-9e15), al_r:alR, al_w:alW,
           imp:imp});
       });
     });
@@ -1381,7 +1372,7 @@ function renderAll(){
   const sortMark=key=>(k===key?(dir>0?" ▲":" ▼"):"");
   const h1='<tr>'+ALL_BASE.map(c=>'<th rowspan="2" class="rr-sorth'+(k===c.key?' rr-sorton':'')
       +'" data-key="'+c.key+'" title="click to sort by '+c.lbl+'">'+c.lbl+sortMark(c.key)+'</th>').join("")
-    +ALL_GRPS.map(([g,lbl])=>'<th colspan="4" class="grp grpL">'+lbl+'</th>').join("")
+    +ALL_GRPS.map(([g,lbl])=>'<th colspan="3" class="grp grpL">'+lbl+'</th>').join("")
     +'<th rowspan="2" class="rr-sorth grpL'+(k==="imp"?' rr-sorton':'')
       +'" data-key="imp" title="Risk + Win summed across all three groups">Imp'+sortMark("imp")+'</th></tr>';
   const h2='<tr>'+ALL_GRPS.map(([g])=>ALL_SUB.map(([sk,sl],si)=>{
@@ -1397,22 +1388,19 @@ function renderAll(){
     +'<td class="num">'+oddsStr(rc.oddsAm)+'</td>'
     +'<td>'+escapeHtml(rc.opp)+'</td>'
     +'<td class="num">'+pv(rc.prob)+'</td>'
-    +'<td class="num grpL">'+pv(rc.sb_p)+'</td>'
-    +'<td class="num">'+evc(rc.sb_e)+'</td>'
+    +'<td class="num grpL">'+evc(rc.sb_e)+'</td>'
     +'<td class="num">'+(rc.hasSB?unit(rc.sb_r):"")+'</td>'
     +'<td class="num">'+(rc.hasSB?unit(rc.sb_w):"")+'</td>'
-    +'<td class="num grpL">'+pv(rc.rr_p)+'</td>'
-    +'<td class="num">'+(rc.hasRR?evc(rc.rr_e):"")+'</td>'
+    +'<td class="num grpL">'+(rc.hasRR?evc(rc.rr_e):"")+'</td>'
     +'<td class="num">'+(rc.hasRR?unit(rc.rr_r):"")+'</td>'
     +'<td class="num">'+(rc.hasRR?unit(rc.rr_w):"")+'</td>'
-    +'<td class="num grpL">'+pv(rc.al_p)+'</td>'
-    +'<td class="num">'+evc(rc.al_e)+'</td>'
+    +'<td class="num grpL">'+evc(rc.al_e)+'</td>'
     +'<td class="num">'+unit(rc.al_r)+'</td>'
     +'<td class="num">'+unit(rc.al_w)+'</td>'
     +'<td class="num grpL">'+unit(rc.imp)+'</td></tr>').join("");
   box.innerHTML='<div style="overflow-x:auto"><table id="alltable">'
     +'<thead>'+h1+h2+'</thead><tbody>'+body+'</tbody>'
-    +'<tfoot><tr><td colspan="20">'+rows.length+' fighters</td></tr></tfoot>'
+    +'<tfoot><tr><td colspan="17">'+rows.length+' fighters</td></tr></tfoot>'
     +'</table></div>';
   box.querySelectorAll("#alltable th[data-key]").forEach(th=>th.addEventListener("click",()=>{
     const key=th.dataset.key;
