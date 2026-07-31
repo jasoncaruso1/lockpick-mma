@@ -975,7 +975,9 @@ const RR_COLS=[
   {key:"time2", lbl:"Time",      dir:1},
   {key:"f2",    lbl:"Fighter 2", dir:1},
   {key:"promo2",lbl:"Promotion", dir:1},
+  {key:"prob",  lbl:"Prob",      dir:-1},
   {key:"odds",  lbl:"Odds",      dir:1},
+  {key:"ev",    lbl:"E[X]",      dir:-1},
   {key:"risk",  lbl:"Risk",      dir:-1},
   {key:"win",   lbl:"Win",       dir:-1}];
 let _rrSort={key:"time1",dir:1};
@@ -984,6 +986,7 @@ let _rrTot={r:0,w:0};           // board totals for the header Risk/Win box
 let _rrPromoSel=null;           // promotion filter: null = ALL, else Set of tab labels
 let _rrSearch="";               // fighter search: substring vs EITHER leg's name
 let _rrOddsMin="", _rrOddsMax="";   // pair-odds range, American entry ("-300", "+150")
+let _rrLegMin="", _rrLegMax="";     // LEG-odds range: most restrictive — BOTH legs must be inside
 // American entry -> decimal bound; null until it's a REAL price (|v| >= 100), so a
 // half-typed "-3" never filters the table mid-keystroke.
 function _rrOddsDec(s){
@@ -1010,13 +1013,18 @@ function renderRR(){
     const s1=(r1&&r1.sort!=null&&r1.sort!==Infinity)?r1.sort:9e15;
     const s2=(r2&&r2.sort!=null&&r2.sort!==Infinity)?r2.sort:9e15;
     const riskPct=rrStake(p), dec=amToDec(p.dk_odds)||1;
-    return {l1:l1,l2:l2,riskPct:riskPct,dec:dec,po:p.dk_odds,
+    // joint hit prob: the pair-level model prob, else the leg product (independent bouts)
+    const pj=(p.prob!=null)?p.prob
+      :((l1.prob!=null&&l2.prob!=null)?l1.prob*l2.prob:null);
+    return {l1:l1,l2:l2,riskPct:riskPct,dec:dec,po:p.dk_odds,pj:pj,
+      od1:amToDec(l1.dk_odds), od2:amToDec(l2.dk_odds),
       ft1:ftOf(r1), ft2:ftOf(r2),
       fids:[l1,l2].map(l=>(l.event_id||"?")+":"+(l.side_id||"?")).join(","),
       time1:s1, time2:s2, time:Math.min(s1,s2),
       f1:String(l1.side||""), promo1:String((r1&&r1.tab)||l1.event||""),
       f2:String(l2.side||""), promo2:String((r2&&r2.tab)||l2.event||""),
-      odds:dec, risk:riskPct, win:riskPct*(dec-1)};
+      prob:(pj!=null?pj:-1), odds:dec, ev:(pj!=null?riskPct*(pj*dec-1):-9e15),
+      risk:riskPct, win:riskPct*(dec-1)};
   });
   // ---- filters: fighter search (substring vs EITHER leg) AND promotion multiselect.
   //      Promotion chips are EXCLUSIONARY (2026-07-30): deselecting a promotion hides
@@ -1026,13 +1034,20 @@ function renderRR(){
     .sort((a,b)=>((a in ord)?ord[a]:99)-((b in ord)?ord[b]:99)||a.localeCompare(b));
   const sel=_rrPromoSel, q=_rrSearch.trim().toLowerCase();
   const dmin=_rrOddsDec(_rrOddsMin), dmax=_rrOddsDec(_rrOddsMax);   // pair parlay-odds range
+  const lmin=_rrOddsDec(_rrLegMin), lmax=_rrOddsDec(_rrLegMax);     // per-LEG odds range
+  // leg range is MOST RESTRICTIVE: a pair with EITHER leg outside (or unpriced) is hidden
+  const legOk=rc=>(lmin==null&&lmax==null)
+    ||(rc.od1!=null&&rc.od2!=null
+       &&(lmin==null||(rc.od1>=lmin&&rc.od2>=lmin))
+       &&(lmax==null||(rc.od1<=lmax&&rc.od2<=lmax)));
   const shown=recs.filter(rc=>(sel==null||(sel.has(rc.promo1)&&sel.has(rc.promo2)))
     &&(!q||rc.f1.toLowerCase().indexOf(q)>=0||rc.f2.toLowerCase().indexOf(q)>=0)
-    &&(dmin==null||rc.odds>=dmin)&&(dmax==null||rc.odds<=dmax));
+    &&(dmin==null||rc.odds>=dmin)&&(dmax==null||rc.odds<=dmax)
+    &&legOk(rc));
   const chips='<div id="rrfilter">'
     +'<input id="rrsearch" type="search" placeholder="Search fighter…" value="'
       +escapeHtml(_rrSearch).replace(/"/g,"&quot;")+'">'
-    +'<span class="rrf-lbl">Odds</span>'
+    +'<span class="rrf-lbl">Pair odds</span>'
     +'<input id="rrodds-min" class="rrf-odd" type="text" inputmode="numeric" placeholder="Min"'
       +' title="hide pairs shorter than this American price (e.g. -300)" value="'
       +escapeHtml(_rrOddsMin).replace(/"/g,"&quot;")+'">'
@@ -1040,6 +1055,14 @@ function renderRR(){
     +'<input id="rrodds-max" class="rrf-odd" type="text" inputmode="numeric" placeholder="Max"'
       +' title="hide pairs longer than this American price (e.g. +150)" value="'
       +escapeHtml(_rrOddsMax).replace(/"/g,"&quot;")+'">'
+    +'<span class="rrf-lbl">Leg odds</span>'
+    +'<input id="rrlegs-min" class="rrf-odd" type="text" inputmode="numeric" placeholder="Min"'
+      +' title="hide pairs with ANY leg shorter than this American price" value="'
+      +escapeHtml(_rrLegMin).replace(/"/g,"&quot;")+'">'
+    +'<span class="rrf-lbl">to</span>'
+    +'<input id="rrlegs-max" class="rrf-odd" type="text" inputmode="numeric" placeholder="Max"'
+      +' title="hide pairs with ANY leg longer than this American price" value="'
+      +escapeHtml(_rrLegMax).replace(/"/g,"&quot;")+'">'
     +'<span class="rrf-lbl">Promotions</span>'
     +promos.map(p=>'<button class="rrf-chip'+((sel==null||sel.has(p))?' on':'')
       +'" data-promo="'+p+'" title="toggle '+p+' pairs">'+p+'</button>').join("")
@@ -1057,11 +1080,14 @@ function renderRR(){
     }
     return a.time<b.time?-1:(a.time>b.time?1:0);   // universal tiebreak: earlier-leg time asc
   });
-  let totR=0, totW=0;
+  let totR=0, totW=0, totE=0;
   const rows=shown.map((rc,i)=>{
     const risk=BANKROLL>0 ? BANKROLL*rc.riskPct/100 : null;
     const winv=risk!=null ? risk*(rc.dec-1) : null;
+    const evu=(rc.pj!=null)?(rc.pj*rc.dec-1):null;               // EV per unit staked
+    const evv=(evu==null)?null:(risk!=null?risk*evu:rc.riskPct*evu);
     totR+=risk!=null?risk:rc.riskPct; totW+=winv!=null?winv:rc.riskPct*(rc.dec-1);
+    totE+=evv!=null?evv:0;
     return '<tr id="rrrow-'+i+'"'
       +(_rrHL&&rc.fids.split(",").indexOf(_rrHL)>=0?' class="rrhl"':'')
       +' data-fids="'+rc.fids+'">'
@@ -1071,7 +1097,9 @@ function renderRR(){
       +'<td class="ftcell">'+rc.ft2+'</td>'
       +'<td><b class="rrfn" data-fn="'+escapeHtml(rc.f2).replace(/"/g,"&quot;")
         +'" title="show only this fighter\'s pairs">'+(rc.l2.side||"?")+'</b> '+oddsStr(rc.l2.dk_odds)+'</td><td class="promo">'+rc.promo2+'</td>'
+      +'<td class="num">'+(rc.pj!=null?(rc.pj*100).toFixed(1)+'%':'')+'</td>'
       +'<td class="num">'+oddsStr(rc.po)+'</td>'
+      +'<td class="num">'+(evv==null?'':(risk!=null?money(evv):evv.toFixed(2)+'%'))+'</td>'
       +'<td class="num">'+(risk!=null?money(risk):rc.riskPct.toFixed(2)+'%')+'</td>'
       +'<td class="num">'+(winv!=null?money(winv):(rc.riskPct*(rc.dec-1)).toFixed(2)+'%')+'</td></tr>';
   }).join("");
@@ -1084,7 +1112,8 @@ function renderRR(){
       ? '<div style="overflow-x:auto"><table id="rrtable">'
         +'<thead><tr>'+head+'</tr></thead>'
         +'<tbody>'+rows+'</tbody>'
-        +'<tfoot><tr><td colspan="7">'+cnt+'</td>'
+        +'<tfoot><tr><td colspan="8">'+cnt+'</td>'
+        +'<td class="num">'+(BANKROLL>0?money(totE):totE.toFixed(2)+'%')+'</td>'
         +'<td class="num">'+(BANKROLL>0?money(totR):totR.toFixed(2)+'%')+'</td>'
         +'<td class="num">'+(BANKROLL>0?money(totW):totW.toFixed(2)+'%')+'</td></tr></tfoot>'
         +'</table></div>'
@@ -1101,7 +1130,9 @@ function renderRR(){
   // keystroke — capture the caret, re-render, then restore focus+caret by id.
   [["rrsearch",v=>_rrSearch=v,()=>_rrSearch],
    ["rrodds-min",v=>_rrOddsMin=v,()=>_rrOddsMin],
-   ["rrodds-max",v=>_rrOddsMax=v,()=>_rrOddsMax]].forEach(([id,set,get])=>{
+   ["rrodds-max",v=>_rrOddsMax=v,()=>_rrOddsMax],
+   ["rrlegs-min",v=>_rrLegMin=v,()=>_rrLegMin],
+   ["rrlegs-max",v=>_rrLegMax=v,()=>_rrLegMax]].forEach(([id,set,get])=>{
     const el=box.querySelector("#"+id);
     if(!el) return;
     el.addEventListener("input",()=>{
@@ -1120,7 +1151,9 @@ function renderRR(){
   // clicking a fighter name = that fighter's pairs only, name filled into the search bar
   // (promotion + odds-range filters reset so ALL of the fighter's pairs show)
   box.querySelectorAll("#rrtable .rrfn").forEach(b=>b.addEventListener("click",()=>{
-    _rrSearch=b.dataset.fn||""; _rrPromoSel=null; _rrOddsMin=""; _rrOddsMax=""; _rrHL=null; renderRR();
+    _rrSearch=b.dataset.fn||""; _rrPromoSel=null;
+    _rrOddsMin=""; _rrOddsMax=""; _rrLegMin=""; _rrLegMax="";
+    _rrHL=null; renderRR();
   }));
   box.querySelectorAll("#rrtable th[data-key]").forEach(th=>th.addEventListener("click",()=>{
     const key=th.dataset.key;
@@ -1138,7 +1171,7 @@ function showRR(highlightKey){
   document.querySelectorAll(".navbtn").forEach(b=>b.classList.remove("active"));
   document.querySelectorAll(".cardtab").forEach(b=>b.classList.toggle("active",b.classList.contains("rrtab")));
   _rrHL=highlightKey||null;     // renderRR paints .rrhl inline, so it survives re-sorts
-  if(_rrHL){ _rrPromoSel=null; _rrSearch=""; _rrOddsMin=""; _rrOddsMax=""; }   // a banner click must never land on a filtered-out row
+  if(_rrHL){ _rrPromoSel=null; _rrSearch=""; _rrOddsMin=""; _rrOddsMax=""; _rrLegMin=""; _rrLegMax=""; }   // a banner click must never land on a filtered-out row
   renderRR();
   if(_rrHL){
     const first=document.querySelector("#rrtable tr.rrhl");
