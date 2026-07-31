@@ -988,7 +988,7 @@ const RR_COLS=[
   {key:"ev",    lbl:"E[X]",      dir:-1},
   {key:"risk",  lbl:"Risk",      dir:-1},
   {key:"win",   lbl:"Win",       dir:-1}];
-let _rrSort={key:"time1",dir:1};
+let _rrSort={key:"time2",dir:1};   // default = the LATER leg (settlement order); legs display chronologically
 let _rrHL=null;                 // highlighted fight key; survives re-sorts
 let _rrTot={r:0,w:0};           // board totals for the header Risk/Win box
 let _rrPromoSel=null;           // promotion filter: null = ALL, else Set of tab labels
@@ -1014,14 +1014,17 @@ function renderRR(){
   // one record per pair with every displayed value + sort key precomputed.
   // PER-LEG times (2026-07-30): time1/time2 are full DATETIMEs (minutes since epoch:
   // event date + fight time), one per fighter column, so Fri sorts before Sat
-  // regardless of clock time; `time` = the LATER of the two (when the pair settles)
-  // is the pair's canonical time and the universal tiebreak.
+  // regardless of clock time. LEGS DISPLAY CHRONOLOGICALLY — the earlier leg is
+  // always Fighter 1, so Time₂ IS the later leg = when the pair settles = the
+  // pair's canonical time (the default sort + the universal tiebreak).
   const recs=pairs.map(pr=>{
-    const p=pr.p, l1=p.legs[0], l2=p.legs[1]||{};
-    const r1=rrLegRec(l1), r2=rrLegRec(l2);
+    const p=pr.p;
+    let l1=p.legs[0], l2=p.legs[1]||{};
+    let r1=rrLegRec(l1), r2=rrLegRec(l2);
+    const tOf=r=>(r&&r.sort!=null&&r.sort!==Infinity)?r.sort:9e15;
+    if(tOf(r2)<tOf(r1)){ const tl=l1; l1=l2; l2=tl; const tr=r1; r1=r2; r2=tr; }
     const ftOf=r=>r?((r.dt||"")+(r.ft?(r.dt?" · ":"")+r.ft:"")):"";
-    const s1=(r1&&r1.sort!=null&&r1.sort!==Infinity)?r1.sort:9e15;
-    const s2=(r2&&r2.sort!=null&&r2.sort!==Infinity)?r2.sort:9e15;
+    const s1=tOf(r1), s2=tOf(r2);
     const riskPct=rrStake(p), dec=amToDec(p.dk_odds)||1;
     // joint hit prob: the pair-level model prob, else the leg product (independent bouts)
     const pj=(p.prob!=null)?p.prob
