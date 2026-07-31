@@ -1380,6 +1380,8 @@ function renderAll(){
       return '<th class="rr-sorth'+(si===0?' grpL':'')+(k===key?' rr-sorton':'')
         +'" data-key="'+key+'">'+sl+sortMark(key)+'</th>';
     }).join("")).join("")+'</tr>';
+  const bar='<div id="allbar" style="display:flex;justify-content:flex-end;margin:0 0 8px">'
+    +'<button class="rrf-chip rrf-csv" id="allcsv" title="download this table as CSV">CSV</button></div>';
   const body=rows.map(rc=>'<tr>'
     +'<td class="promo">'+rc.promo+'</td>'
     +'<td class="ftcell">'+escapeHtml(rc.tv)+'</td>'
@@ -1398,7 +1400,8 @@ function renderAll(){
     +'<td class="num">'+unit(rc.al_r)+'</td>'
     +'<td class="num">'+unit(rc.al_w)+'</td>'
     +'<td class="num grpL">'+unit(rc.imp)+'</td></tr>').join("");
-  box.innerHTML='<div style="overflow-x:auto"><table id="alltable">'
+  box.innerHTML=bar
+    +'<div style="overflow-x:auto"><table id="alltable">'
     +'<thead>'+h1+h2+'</thead><tbody>'+body+'</tbody>'
     +'<tfoot><tr><td colspan="17">'+rows.length+' fighters</td></tr></tfoot>'
     +'</table></div>';
@@ -1408,6 +1411,25 @@ function renderAll(){
     else _allSort={key:key,dir:(ALL_DIRS[key]!=null?ALL_DIRS[key]:1)};
     renderAll();
   }));
+  // CSV of the table exactly as displayed: current sort order + display units
+  const csvBtn=box.querySelector("#allcsv");
+  if(csvBtn) csvBtn.addEventListener("click",()=>{
+    const cq=s=>'"'+String(s==null?"":s).replace(/"/g,'""')+'"';
+    const head=["Promo","TV","Time","Fighter","Odds","Opponent","Prob",
+                "SB E[X]","SB Risk","SB Win","RR E[X]","RR Risk","RR Win",
+                "All E[X]","All Risk","All Win","Imp"];
+    const lines=[head.map(cq).join(",")].concat(rows.map(rc=>
+      [rc.promo, rc.tv, rc.tlbl, rc.fighter, oddsStr(rc.oddsAm), rc.opp, pv(rc.prob),
+       evc(rc.sb_e), rc.hasSB?unit(rc.sb_r):"", rc.hasSB?unit(rc.sb_w):"",
+       rc.hasRR?evc(rc.rr_e):"", rc.hasRR?unit(rc.rr_r):"", rc.hasRR?unit(rc.rr_w):"",
+       evc(rc.al_e), unit(rc.al_r), unit(rc.al_w), unit(rc.imp)].map(cq).join(",")));
+    const blob=new Blob(["﻿"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="all_bets_"+new Date().toISOString().slice(0,10)+".csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+  });
 }
 function showAll(){
   _activeView="all";
