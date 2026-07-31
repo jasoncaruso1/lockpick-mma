@@ -235,10 +235,10 @@
   #rrtable th.rr-sorth:hover,#rrtable th.rr-sorton{color:var(--fg)}
   /* one line up to the table's width; when forced to wrap, space-between spreads the
      filter GROUPS so lines come out relatively even in width and stay aligned */
-  #rrfilter{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;
+  #rrfilter,#allfilter{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;
     justify-content:space-between;margin:0 0 10px}
-  #rrfilter .rrf-grp{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-  #rrfilter .rrf-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.5px;
+  #rrfilter .rrf-grp,#allfilter .rrf-grp{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  #rrfilter .rrf-lbl,#allfilter .rrf-lbl{font-size:9px;text-transform:uppercase;letter-spacing:.5px;
     color:#6a7180;font-weight:700}
   .rrf-chip{font:inherit;font-size:10px;font-weight:800;padding:3px 10px;border-radius:999px;
     border:1px solid var(--line);background:transparent;color:#6a7180;cursor:pointer}
@@ -246,14 +246,16 @@
   .rrf-chip.rrf-all{color:var(--fg);border-style:dashed}
   .rrf-chip.rrf-csv{color:var(--fg)}
   .rrf-chip.rrf-csv:hover{color:#0b4a58;background:#7cc4d2;border-color:#7cc4d2}
-  #rrsearch,.rrf-odd,.rrf-sel{font:inherit;font-size:11px;padding:3px 10px;border-radius:999px;
+  #rrsearch,#alsearch,.rrf-odd,.rrf-sel{font:inherit;font-size:11px;padding:3px 10px;border-radius:999px;
     border:1px solid var(--line);background:transparent;color:var(--fg)}
-  #rrsearch{width:180px;min-width:120px}
+  #rrsearch,#alsearch{width:180px;min-width:120px}
   .rrf-odd{width:66px;text-align:center}
   .rrf-sel{padding:3px 6px}
   .rrf-sel option{color:#000}
-  #rrsearch::placeholder,.rrf-odd::placeholder{color:#6a7180}
-  #rrsearch:focus,.rrf-odd:focus,.rrf-sel:focus{outline:none;border-color:#7cc4d2}
+  #rrsearch::placeholder,#alsearch::placeholder,.rrf-odd::placeholder{color:#6a7180}
+  #rrsearch:focus,#alsearch:focus,.rrf-odd:focus,.rrf-sel:focus{outline:none;border-color:#7cc4d2}
+  #alltable .alfn{cursor:pointer}
+  #alltable .alfn:hover{color:var(--gold);text-decoration:underline dotted}
   #rrtable .rrfn{cursor:pointer}
   #rrtable .rrfn:hover{color:#7cc4d2;text-decoration:underline dotted}
   #rrtable tr.rrhl td{background:rgba(124,196,210,.18)}
@@ -1317,6 +1319,12 @@ const ALL_GRPS=[["sb","Straight Bet"],["rr","Round Robin"],["al","All"]];
 const ALL_DIRS={}; ALL_BASE.forEach(c=>ALL_DIRS[c.key]=c.dir);
 ALL_GRPS.forEach(([g])=>ALL_SUB.forEach(([sk])=>ALL_DIRS[g+"_"+sk]=-1)); ALL_DIRS.imp=-1;
 let _allSort={key:"time",dir:1};
+// All-page filters (mirror the RR page where applicable): fighter search matches
+// Fighter OR Opponent; ONE odds range (the fighter's own line -- there is no pair
+// price here); time range over the board's distinct fight datetimes; promotion
+// chips EXCLUSIONARY (a row hides when its promotion is deselected).
+let _alSearch="", _alOddsMin="", _alOddsMax="", _alTimeMin="", _alTimeMax="";
+let _alPromoSel=null;
 function renderAll(){
   const box=document.getElementById("allpage");
   const cards=__CARDS__||[{label:DATA.event?.name||"",data:__PAYLOAD__}];
@@ -1367,8 +1375,28 @@ function renderAll(){
     box.innerHTML='<p class="subtle">No bets are in play in '+(BET_MODE==="edge"?"EDGE":"SLATE")+' mode.</p>';
     return;
   }
+  // ---- filters (compose AND) ----
+  const ord={}; (__CARDS__||[]).forEach((c,i)=>{ ord[c.label||c.key]=i; });
+  const promos=[...new Set(rows.map(rc=>rc.promo).filter(Boolean))]
+    .sort((a,b)=>((a in ord)?ord[a]:99)-((b in ord)?ord[b]:99)||a.localeCompare(b));
+  const sel=_alPromoSel, q=_alSearch.trim().toLowerCase();
+  const omin=_rrOddsDec(_alOddsMin), omax=_rrOddsDec(_alOddsMax);
+  const tmin=_alTimeMin===""?null:+_alTimeMin, tmax=_alTimeMax===""?null:+_alTimeMax;
+  const shown=rows.filter(rc=>(sel==null||sel.has(rc.promo))
+    &&(!q||rc.fighter.toLowerCase().indexOf(q)>=0||rc.opp.toLowerCase().indexOf(q)>=0)
+    &&((omin==null&&omax==null)||(rc.oddsAm!=null
+        &&(omin==null||rc.odds>=omin)&&(omax==null||rc.odds<=omax)))
+    &&((tmin==null&&tmax==null)||(rc.time<9e15
+        &&(tmin==null||rc.time>=tmin)&&(tmax==null||rc.time<=tmax))));
+  const tmap=new Map();
+  rows.forEach(rc=>{ if(rc.time<9e15) tmap.set(rc.time,rc.tlbl); });
+  const topts=[...tmap.entries()].sort((a,b)=>a[0]-b[0]);
+  const tsel=(id,cur)=>'<select id="'+id+'" class="rrf-sel">'
+    +'<option value="">Any</option>'
+    +topts.map(([v,lbl])=>'<option value="'+v+'"'+(String(v)===cur?' selected':'')+'>'
+      +lbl+'</option>').join("")+'</select>';
   const k=_allSort.key, dir=_allSort.dir;
-  rows.sort((a,b)=>{
+  shown.sort((a,b)=>{
     const va=a[k], vb=b[k];
     let cc=(typeof va==="string")?va.localeCompare(vb):(va<vb?-1:(va>vb?1:0));
     if(cc) return cc*dir;
@@ -1389,15 +1417,38 @@ function renderAll(){
       return '<th class="rr-sorth'+(si===0?' grpL':'')+(k===key?' rr-sorton':'')
         +'" data-key="'+key+'">'+sl+sortMark(key)+'</th>';
     }).join("")).join("")+'</tr>';
-  const bar='<div id="allbar" style="display:flex;justify-content:flex-end;margin:0 0 8px">'
-    +'<button class="rrf-chip rrf-csv" id="allcsv" title="download this table as CSV">CSV</button></div>';
-  const body=rows.map(rc=>'<tr>'
+  const bar='<div id="allfilter">'
+    +'<span class="rrf-grp"><input id="alsearch" type="search" placeholder="Search fighter…" value="'
+      +escapeHtml(_alSearch).replace(/"/g,"&quot;")+'"></span>'
+    +'<span class="rrf-grp"><span class="rrf-lbl">Odds</span>'
+    +'<input id="alodds-min" class="rrf-odd" type="text" inputmode="numeric" placeholder="-99999"'
+      +' title="hide fighters priced shorter than this American line" value="'
+      +escapeHtml(_alOddsMin).replace(/"/g,"&quot;")+'">'
+    +'<span class="rrf-lbl">to</span>'
+    +'<input id="alodds-max" class="rrf-odd" type="text" inputmode="numeric" placeholder="+99999"'
+      +' title="hide fighters priced longer than this American line" value="'
+      +escapeHtml(_alOddsMax).replace(/"/g,"&quot;")+'"></span>'
+    +'<span class="rrf-grp"><span class="rrf-lbl">Time</span>'
+      +tsel("altime-min",_alTimeMin)
+      +'<span class="rrf-lbl">to</span>'
+      +tsel("altime-max",_alTimeMax)+'</span>'
+    +'<span class="rrf-grp"><span class="rrf-lbl">Promotions</span>'
+    +promos.map(p=>'<button class="rrf-chip'+((sel==null||sel.has(p))?' on':'')
+      +'" data-promo="'+p+'" title="toggle '+p+' rows">'+p+'</button>').join("")
+    +(sel!=null?'<button class="rrf-chip rrf-all" data-promo="__all__" title="show every promotion">All</button>':'')
+    +'</span>'
+    +'<span class="rrf-grp"><button class="rrf-chip rrf-csv" id="allcsv"'
+      +' title="download the currently filtered view as CSV">CSV</button></span>'
+    +'</div>';
+  const body=shown.map(rc=>'<tr>'
     +'<td class="promo">'+rc.promo+'</td>'
     +'<td class="ftcell">'+escapeHtml(rc.tv)+'</td>'
     +'<td class="ftcell">'+rc.tlbl+'</td>'
-    +'<td><b>'+escapeHtml(rc.fighter)+'</b></td>'
+    +'<td><b class="alfn" data-fn="'+escapeHtml(rc.fighter).replace(/"/g,"&quot;")
+      +'" title="show only this fighter">'+escapeHtml(rc.fighter)+'</b></td>'
     +'<td class="num">'+oddsStr(rc.oddsAm)+'</td>'
-    +'<td>'+escapeHtml(rc.opp)+'</td>'
+    +'<td><span class="alfn" data-fn="'+escapeHtml(rc.opp).replace(/"/g,"&quot;")
+      +'" title="show only this fighter">'+escapeHtml(rc.opp)+'</span></td>'
     +'<td class="num">'+pv(rc.prob)+'</td>'
     +'<td class="num grpL">'+evc(rc.sb_e)+'</td>'
     +'<td class="num">'+(rc.hasSB?unit(rc.sb_r):"")+'</td>'
@@ -1409,11 +1460,14 @@ function renderAll(){
     +'<td class="num">'+unit(rc.al_r)+'</td>'
     +'<td class="num">'+unit(rc.al_w)+'</td>'
     +'<td class="num grpL">'+unit(rc.imp)+'</td></tr>').join("");
+  const cnt=shown.length+(shown.length!==rows.length?' of '+rows.length:'')+' fighters';
   box.innerHTML=bar
-    +'<div class="rrscroll"><table id="alltable">'
-    +'<thead>'+h1+h2+'</thead><tbody>'+body+'</tbody>'
-    +'<tfoot><tr><td colspan="17">'+rows.length+' fighters</td></tr></tfoot>'
-    +'</table></div>';
+    +(shown.length
+      ? '<div class="rrscroll"><table id="alltable">'
+        +'<thead>'+h1+h2+'</thead><tbody>'+body+'</tbody>'
+        +'<tfoot><tr><td colspan="17">'+cnt+'</td></tr></tfoot>'
+        +'</table></div>'
+      : '<p class="subtle">No fighters match the current filters ('+rows.length+' hidden).</p>');
   // pin the second header row just below the first (measured -- rowspan cells make
   // the first row's height unknowable in static CSS)
   const hr1=box.querySelector("#alltable thead tr");
@@ -1428,6 +1482,45 @@ function renderAll(){
     else _allSort={key:key,dir:(ALL_DIRS[key]!=null?ALL_DIRS[key]:1)};
     renderAll();
   }));
+  // filter listeners (same caret-preserving re-render pattern as the RR page;
+  // odds inputs auto-format a bare positive entry to a leading "+")
+  [["alsearch",v=>_alSearch=v,()=>_alSearch,false],
+   ["alodds-min",v=>_alOddsMin=v,()=>_alOddsMin,true],
+   ["alodds-max",v=>_alOddsMax=v,()=>_alOddsMax,true]].forEach(([id,set,get,norm])=>{
+    const el=box.querySelector("#"+id);
+    if(!el) return;
+    el.addEventListener("input",()=>{
+      let v=el.value, pos=el.selectionStart;
+      if(norm&&/^\d/.test(v)){ v="+"+v; pos+=1; }
+      set(v); renderAll();
+      const n=document.getElementById(id);
+      if(n){ n.focus(); try{ n.setSelectionRange(pos,pos); }catch(e){} }
+    });
+    el.addEventListener("keydown",e=>{
+      if(e.key==="Escape"&&get()){
+        set(""); renderAll();
+        const n=document.getElementById(id); if(n) n.focus();
+      }
+    });
+  });
+  [["altime-min",v=>_alTimeMin=v],["altime-max",v=>_alTimeMax=v]].forEach(([id,set])=>{
+    const el=box.querySelector("#"+id);
+    if(el) el.addEventListener("change",()=>{ set(el.value); renderAll(); });
+  });
+  box.querySelectorAll("#allfilter .rrf-chip[data-promo]").forEach(b=>b.addEventListener("click",()=>{
+    const p=b.dataset.promo;
+    if(p==="__all__"){ _alPromoSel=null; renderAll(); return; }
+    if(_alPromoSel==null) _alPromoSel=new Set(promos);
+    if(_alPromoSel.has(p)) _alPromoSel.delete(p); else _alPromoSel.add(p);
+    if(_alPromoSel.size===promos.length) _alPromoSel=null;
+    renderAll();
+  }));
+  // clicking a name (Fighter or Opponent) = only that fighter, filters reset
+  box.querySelectorAll("#alltable .alfn").forEach(b=>b.addEventListener("click",()=>{
+    _alSearch=b.dataset.fn||""; _alPromoSel=null;
+    _alOddsMin=""; _alOddsMax=""; _alTimeMin=""; _alTimeMax="";
+    renderAll();
+  }));
   // CSV of the table exactly as displayed: current sort order + display units
   const csvBtn=box.querySelector("#allcsv");
   if(csvBtn) csvBtn.addEventListener("click",()=>{
@@ -1435,7 +1528,7 @@ function renderAll(){
     const head=["Promo","TV","Time","Fighter","Odds","Opponent","Prob",
                 "SB E[X]","SB Risk","SB Win","RR E[X]","RR Risk","RR Win",
                 "All E[X]","All Risk","All Win","Imp"];
-    const lines=[head.map(cq).join(",")].concat(rows.map(rc=>
+    const lines=[head.map(cq).join(",")].concat(shown.map(rc=>
       [rc.promo, rc.tv, rc.tlbl, rc.fighter, oddsStr(rc.oddsAm), rc.opp, pv(rc.prob),
        evc(rc.sb_e), rc.hasSB?unit(rc.sb_r):"", rc.hasSB?unit(rc.sb_w):"",
        rc.hasRR?evc(rc.rr_e):"", rc.hasRR?unit(rc.rr_r):"", rc.hasRR?unit(rc.rr_w):"",
